@@ -7,8 +7,11 @@ import { bookmarkService } from '../utils/bookmarkService';
 export const BookmarkGraph: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
     const graphInstanceRef = useRef<any>(null);
+    const rootNodeRef = useRef<any>(null);
     const hoveredNodeRef = useRef<any>(null);
     const imgCache = useRef<{ [key: string]: HTMLImageElement }>({});
+    const allDataRef = useRef<{ nodes: any[]; links: any[] }>({ nodes: [], links: [] });
+    const expandedNodesRef = useRef<Set<string>>(new Set());
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -25,7 +28,20 @@ export const BookmarkGraph: React.FC = () => {
             .d3AlphaDecay(0.04) // Stabilize faster
             .d3VelocityDecay(0.3) // Higher friction
             .onNodeClick((node: any) => {
-                if (node.url) {
+                if (node.group === 'folder') {
+                    // Toggle expansion
+                    if (expandedNodesRef.current.has(node.id)) {
+                        expandedNodesRef.current.delete(node.id);
+                        // Optional: Collapse all descendants? For now just close this one.
+                    } else {
+                        expandedNodesRef.current.add(node.id);
+                    }
+                    updateVisibleGraph();
+                    
+                    // Re-heat simulation slightly to arrange new nodes
+                    Graph.d3AlphaTarget(0.3).restart();
+                    setTimeout(() => Graph.d3AlphaTarget(0), 300);
+                } else if (node.url) {
                     window.location.href = node.url;
                 } else {
                     Graph.centerAt(node.x, node.y, 1000);
@@ -38,9 +54,14 @@ export const BookmarkGraph: React.FC = () => {
         // Custom Node Rendering
         Graph.nodeCanvasObject((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
             const label = node.title;
-            // Scale font size
-            const fontSize = Math.max(3, 12 / globalScale); 
-            ctx.font = `${fontSize}px Sans-Serif`;
+            // Dynamic font size based on hierarchy
+            let baseFontSize = 10;
+            if (node.isRoot) baseFontSize = 48; // Much larger
+            else if (node.group === 'folder') baseFontSize = 24;
+
+            // Scale font size to keep readable but relative to zoom
+            const fontSize = Math.max(4, baseFontSize / globalScale); 
+            ctx.font = `${node.isRoot ? 'bold ' : ''}${fontSize}px Sans-Serif`;
             
             // Interaction State check
             const isHovered = node === hoveredNodeRef.current;
@@ -52,7 +73,7 @@ export const BookmarkGraph: React.FC = () => {
             // Draw Glow (Hover or Root)
             if (isHovered || isRoot) {
                 ctx.beginPath();
-                ctx.arc(node.x, node.y, r + (isRoot ? 10 / globalScale : 2 / globalScale), 0, 2 * Math.PI, false); 
+                ctx.arc(node.x, node.y, r + (isRoot ? 20 / globalScale : 4 / globalScale), 0, 2 * Math.PI, false); 
                 ctx.fillStyle = isRoot ? 'rgba(255, 215, 0, 0.3)' : 'rgba(255, 255, 255, 0.4)'; // Gold for root
                 ctx.fill();
             }
@@ -73,7 +94,7 @@ export const BookmarkGraph: React.FC = () => {
                 let img = imgCache.current[node.url];
                 if (!img) {
                     img = new Image();
-                    img.src = `https://www.google.com/s2/favicons?domain=${new URL(node.url).hostname}&sz=32`;
+                    img.src = `https://www.google.com/s2/favicons?domain=${new URL(node.url).hostname}&sz=64`;
                     imgCache.current[node.url] = img;
                 }
 
@@ -91,8 +112,45 @@ export const BookmarkGraph: React.FC = () => {
                 }
             }
 
-            // Draw Label
-            const showLabel = node.group === 'folder' || isHovered || globalScale > 2 || isRoot;
+            // Check if Root is Visible in Viewport
+            let isRootVisible = true;
+            if (rootNodeRef.current) {
+                const { x, y } = rootNodeRef.current;
+                // ForceGraph gives us graph2ScreenCoords
+                const screenCoords = Graph.graph2ScreenCoords(x, y);
+                const width = Graph.width();
+                const height = Graph.height();
+                
+                // Add some buffer (e.g. consider visible if within screen + small margin)
+                const margin = r * globalScale; // Use root radius size as margin
+                if (
+                    screenCoords.x < -margin || 
+                    screenCoords.x > width + margin || 
+                    screenCoords.y < -margin || 
+                    screenCoords.y > height + margin
+                ) {
+                    isRootVisible = false;
+                }
+            }
+
+            // Draw Label - Visibility Logic
+            let showLabel = false;
+            
+            if (isRoot || isHovered) {
+                showLabel = true;
+            } else if (node.group === 'folder') {
+                // Folders hidden if very far out, but generally visible
+                if (globalScale > 0.4) showLabel = true; 
+            } else if (node.depth > 2) {
+                 // Deep nodes: only show if Room is NOT visible (user has panned away/zoomed in deep)
+                 // OR if zoomed in extremely close
+                 if (!isRootVisible || globalScale > 3.0) {
+                     showLabel = true;
+                 }
+            } else {
+                 // Standard bookmarks (depth 1-2)
+                 if (globalScale > 1.5) showLabel = true;
+            }
 
             if (showLabel) {
                 const textWidth = ctx.measureText(label).width;
@@ -103,6 +161,24 @@ export const BookmarkGraph: React.FC = () => {
             }
         });
 
+        // Edge/Link Rendering / LOD
+        Graph.linkCanvasObject((link: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+            // LOD: Hide edges if zoomed out too far, unless hovered
+            if (globalScale < 0.6) return;
+
+            const start = link.source;
+            const end = link.target;
+
+            if (typeof start !== 'object' || typeof end !== 'object') return;
+
+            ctx.beginPath();
+            ctx.moveTo(start.x, start.y);
+            ctx.lineTo(end.x, end.y);
+            ctx.lineWidth = 1 / globalScale;
+            ctx.strokeStyle = '#333333';
+            ctx.stroke();
+        });
+
         // Add custom hover logic
         Graph.onNodeHover((node: any) => {
             hoveredNodeRef.current = node;
@@ -111,35 +187,88 @@ export const BookmarkGraph: React.FC = () => {
             }
         });
 
+        // Filter and update graph data based on expansion state
+        const updateVisibleGraph = () => {
+            const { nodes, links } = allDataRef.current;
+            const expanded = expandedNodesRef.current;
+            
+            const visibleNodes = new Set<string>();
+            const visibleNodeObjects: any[] = [];
+            
+            // Always show roots
+            const roots = nodes.filter((n: any) => n.isRoot);
+            const queue = [...roots];
+            queue.forEach(n => visibleNodes.add(n.id));
+            
+            // Traverse
+            while(queue.length > 0) {
+                const node = queue.shift();
+                visibleNodeObjects.push(node);
+                
+                if (expanded.has(node.id) && node.childIds) {
+                    node.childIds.forEach((childId: string) => {
+                         // Find child node object (optimize this map later if needed)
+                         const child = nodes.find((n: any) => n.id === childId);
+                         if (child && !visibleNodes.has(child.id)) {
+                             visibleNodes.add(child.id);
+                             queue.push(child);
+                         }
+                    });
+                }
+            }
+            
+            const visibleLinks = links.filter((link: any) => {
+                 // ForceGraph creates objects for source/target, but initially they are IDs. 
+                 // We need to handle both if we are re-using data or not.
+                 // Ideally we filter raw links.
+                 const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
+                 const targetId = typeof link.target === 'object' ? link.target.id : link.target;
+                 return visibleNodes.has(sourceId) && visibleNodes.has(targetId);
+            });
+
+            Graph.graphData({ nodes: visibleNodeObjects, links: visibleLinks });
+        };
+
         // Load Data
         const loadData = async () => {
             const tree = await bookmarkService.getTree();
             const { nodes, links } = transformData(tree);
-            Graph.graphData({ nodes, links });
+            
+            allDataRef.current = { nodes, links };
+
+            // Find Root
+            rootNodeRef.current = nodes.find((n: any) => n.isRoot);
+            
+            // Initially expand root(s)
+            if (rootNodeRef.current) {
+                expandedNodesRef.current.add(rootNodeRef.current.id);
+            }
+
+            // Initial Draw
+            updateVisibleGraph();
 
             // Apply specific physics forces
             // Prevent overlap
             Graph.d3Force('collide', forceCollide((node: any) => {
                 const r = Math.sqrt(Math.max(0, node.val || 1)) * 2;
-                return r + 2; // Radius + Padding
+                return r + 5; // Radius + Padding
             }));
 
             // Strong repulsion for spacing
-            Graph.d3Force('charge').strength(-300);
+            Graph.d3Force('charge').strength(-500); // Stronger repulsion with bigger nodes
             
             // Adjust links
             Graph.d3Force('link')
                 .distance((link: any) => {
-                    // Logic: Keep folders closer to root, bookmarks closer to folders (?)
-                    // Or keep general spacing structure
-                    return 50;
+                     // Larger distance for larger nodes
+                    return 100;
                 })
-                .strength(0.5); // Slightly tighter structure
+                .strength(0.3);
             
             // Warmup
-            Graph.d3Force('charge').strength(-500); // Stronger initial push
+            Graph.d3Force('charge').strength(-1000); 
             setTimeout(() => {
-                 Graph.d3Force('charge').strength(-300); // Settle down
+                 Graph.d3Force('charge').strength(-500); 
             }, 1000);
         };
 
@@ -171,17 +300,18 @@ export const BookmarkGraph: React.FC = () => {
                 const isFolder = !item.url;
                 const isRoot = parentId === null || depth === 0;
 
-                // Calculate size based on depth
-                // Massive difference for visibility at global scale
-                let val = 5; 
+                // Calculate size based on depth - Aggressive Resize
+                let val = 4; // Default Bookmark (Radius ~4)
                 if (isRoot) {
-                    val = 400; // Radius ~40
+                    val = 2500; // Radius ~100
                 } else if (isFolder) {
-                    // Start at 150 (Radius ~24), decay structure
-                    val = Math.max(20, 150 - ((depth - 1) * 30)); 
-                } else {
-                    val = 5; // Radius ~4.5
+                    // Decay: 400 -> 225 -> 100
+                    // Radius: 40 -> 30 -> 20
+                    val = Math.pow(Math.max(10, 20 - ((depth - 1) * 5)), 2); 
                 }
+                
+                // Collect child IDs
+                const childIds = item.children ? item.children.map((c: any) => c.id) : [];
 
                 nodes.push({
                     id: item.id,
@@ -189,7 +319,10 @@ export const BookmarkGraph: React.FC = () => {
                     group: isFolder ? 'folder' : 'bookmark',
                     url: item.url,
                     val: val,
-                    isRoot: isRoot
+                    isRoot: isRoot,
+                    depth: depth,
+                    childIds: childIds, // Store child IDs for traversal
+                    parentId: parentId
                 });
 
                 if (parentId) {
