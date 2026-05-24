@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:chrome": "vite build && copy public\\manifest.json dist\\manifest.json",
-    "build:firefox": "vite build && copy public\\manifest.firefox.json dist\\manifest.json",
+    "build:chrome": "vite build && node scripts/copy-manifest.mjs chrome",
+    "build:firefox": "vite build && node scripts/copy-manifest.mjs firefox",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -21,6 +21,7 @@
     "eslint": "^9.39.1",
     "globals": "^16.5.0",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.4",
     "vite": "^7.2.4"
   },
   "dependencies": {

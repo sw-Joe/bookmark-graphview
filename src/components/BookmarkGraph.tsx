@@ -1,38 +1,37 @@
 import { forceCollide } from 'd3-force';
 import ForceGraph from 'force-graph';
 import React, { useEffect, useRef } from 'react';
-import { GraphData } from '../types';
+import { BookmarkNode, GraphNode, RenderGraphNode, RenderGraphLink, GraphData } from '../types';
 import { bookmarkService } from '../utils/bookmarkService';
 
 export const BookmarkGraph: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const graphInstanceRef = useRef<any>(null);
-    const rootNodeRef = useRef<any>(null);
-    const hoveredNodeRef = useRef<any>(null);
+    const graphInstanceRef = useRef<ForceGraph<RenderGraphNode, RenderGraphLink> | null>(null);
+    const rootNodeRef = useRef<RenderGraphNode | null>(null);
+    const hoveredNodeRef = useRef<RenderGraphNode | null>(null);
     const imgCache = useRef<{ [key: string]: HTMLImageElement }>({});
-    const allDataRef = useRef<{ nodes: any[]; links: any[] }>({ nodes: [], links: [] });
+    const allDataRef = useRef<{ nodes: GraphNode[]; links: { source: string; target: string }[] }>({ nodes: [], links: [] });
     const expandedNodesRef = useRef<Set<string>>(new Set());
+    const nodeByIdRef = useRef<Map<string, GraphNode>>(new Map());
 
     useEffect(() => {
         if (!containerRef.current) return;
 
-        // Initialize Graph
-        // @ts-ignore
-        const Graph = ForceGraph()(containerRef.current)
+        // Initialize Graph (Strict type cast to handle ForceGraph factory function pattern)
+        const Graph = (ForceGraph as unknown as () => (el: HTMLElement) => ForceGraph<RenderGraphNode, RenderGraphLink>)()(containerRef.current)
             .backgroundColor('#000000')
             .nodeId('id')
             .nodeLabel('title')
             .nodeVal('val')
             .linkColor(() => '#333333')
-            .nodeColor((node: any) => node.group === 'folder' ? '#ffffff' : '#888888')
+            .nodeColor((node: RenderGraphNode) => node.group === 'folder' ? '#ffffff' : '#888888')
             .d3AlphaDecay(0.04) // Stabilize faster
             .d3VelocityDecay(0.3) // Higher friction
-            .onNodeClick((node: any) => {
+            .onNodeClick((node: RenderGraphNode) => {
                 if (node.group === 'folder') {
                     // Toggle expansion
                     if (expandedNodesRef.current.has(node.id)) {
                         expandedNodesRef.current.delete(node.id);
-                        // Optional: Collapse all descendants? For now just close this one.
                     } else {
                         expandedNodesRef.current.add(node.id);
                     }
@@ -52,7 +51,7 @@ export const BookmarkGraph: React.FC = () => {
         graphInstanceRef.current = Graph;
 
         // Custom Node Rendering
-        Graph.nodeCanvasObject((node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+        Graph.nodeCanvasObject((node: RenderGraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
             const label = node.title;
             // Dynamic font size based on hierarchy
             let baseFontSize = 10;
@@ -73,14 +72,14 @@ export const BookmarkGraph: React.FC = () => {
             // Draw Glow (Hover or Root)
             if (isHovered || isRoot) {
                 ctx.beginPath();
-                ctx.arc(node.x, node.y, r + (isRoot ? 20 / globalScale : 4 / globalScale), 0, 2 * Math.PI, false); 
+                ctx.arc(node.x ?? 0, node.y ?? 0, r + (isRoot ? 20 / globalScale : 4 / globalScale), 0, 2 * Math.PI, false); 
                 ctx.fillStyle = isRoot ? 'rgba(255, 215, 0, 0.3)' : 'rgba(255, 255, 255, 0.4)'; // Gold for root
                 ctx.fill();
             }
 
             // Draw Node Circle
             ctx.beginPath();
-            ctx.arc(node.x, node.y, r, 0, 2 * Math.PI, false);
+            ctx.arc(node.x ?? 0, node.y ?? 0, r, 0, 2 * Math.PI, false);
             
             if (isRoot) {
                  ctx.fillStyle = '#FFD700'; // Gold
@@ -94,18 +93,24 @@ export const BookmarkGraph: React.FC = () => {
                 let img = imgCache.current[node.url];
                 if (!img) {
                     img = new Image();
-                    img.src = `https://www.google.com/s2/favicons?domain=${new URL(node.url).hostname}&sz=64`;
+                    let hostname = 'Unknown Link';
+                    try {
+                        hostname = new URL(node.url).hostname;
+                    } catch {
+                        hostname = 'Invalid Link';
+                    }
+                    img.src = `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
                     imgCache.current[node.url] = img;
                 }
 
                 if (img.complete && img.naturalWidth > 0) {
                     ctx.save();
                     ctx.beginPath();
-                    ctx.arc(node.x, node.y, r - 0.5, 0, 2 * Math.PI, false);
+                    ctx.arc(node.x ?? 0, node.y ?? 0, r - 0.5, 0, 2 * Math.PI, false);
                     ctx.clip();
                     try {
-                        ctx.drawImage(img, node.x - r, node.y - r, r * 2, r * 2);
-                    } catch (e) {
+                        ctx.drawImage(img, (node.x ?? 0) - r, (node.y ?? 0) - r, r * 2, r * 2);
+                    } catch {
                          // Fallback
                     }
                     ctx.restore();
@@ -117,7 +122,7 @@ export const BookmarkGraph: React.FC = () => {
             if (rootNodeRef.current) {
                 const { x, y } = rootNodeRef.current;
                 // ForceGraph gives us graph2ScreenCoords
-                const screenCoords = Graph.graph2ScreenCoords(x, y);
+                const screenCoords = Graph.graph2ScreenCoords(x ?? 0, y ?? 0);
                 const width = Graph.width();
                 const height = Graph.height();
                 
@@ -142,7 +147,7 @@ export const BookmarkGraph: React.FC = () => {
                 // Folders hidden if very far out, but generally visible
                 if (globalScale > 0.4) showLabel = true; 
             } else if (node.depth > 2) {
-                 // Deep nodes: only show if Room is NOT visible (user has panned away/zoomed in deep)
+                 // Deep nodes: only show if Root is NOT visible (user has panned away/zoomed in deep)
                  // OR if zoomed in extremely close
                  if (!isRootVisible || globalScale > 3.0) {
                      showLabel = true;
@@ -157,12 +162,12 @@ export const BookmarkGraph: React.FC = () => {
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillStyle = isHovered ? '#ffffff' : (isRoot ? '#FFD700' : 'rgba(255, 255, 255, 0.8)');
-                ctx.fillText(label, node.x, node.y + r + fontSize, textWidth);
+                ctx.fillText(label, node.x ?? 0, (node.y ?? 0) + r + fontSize, textWidth);
             }
         });
 
         // Edge/Link Rendering / LOD
-        Graph.linkCanvasObject((link: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
+        Graph.linkCanvasObject((link: RenderGraphLink, ctx: CanvasRenderingContext2D, globalScale: number) => {
             // LOD: Hide edges if zoomed out too far, unless hovered
             if (globalScale < 0.6) return;
 
@@ -172,15 +177,15 @@ export const BookmarkGraph: React.FC = () => {
             if (typeof start !== 'object' || typeof end !== 'object') return;
 
             ctx.beginPath();
-            ctx.moveTo(start.x, start.y);
-            ctx.lineTo(end.x, end.y);
+            ctx.moveTo(start.x ?? 0, start.y ?? 0);
+            ctx.lineTo(end.x ?? 0, end.y ?? 0);
             ctx.lineWidth = 1 / globalScale;
             ctx.strokeStyle = '#333333';
             ctx.stroke();
         });
 
         // Add custom hover logic
-        Graph.onNodeHover((node: any) => {
+        Graph.onNodeHover((node: RenderGraphNode | null) => {
             hoveredNodeRef.current = node;
             if (containerRef.current) {
                 containerRef.current.style.cursor = node ? 'pointer' : 'default';
@@ -191,24 +196,25 @@ export const BookmarkGraph: React.FC = () => {
         const updateVisibleGraph = () => {
             const { nodes, links } = allDataRef.current;
             const expanded = expandedNodesRef.current;
+            const nodeById = nodeByIdRef.current;
             
             const visibleNodes = new Set<string>();
-            const visibleNodeObjects: any[] = [];
+            const visibleNodeObjects: GraphNode[] = [];
             
             // Always show roots
-            const roots = nodes.filter((n: any) => n.isRoot);
+            const roots = nodes.filter((n) => n.isRoot);
             const queue = [...roots];
             queue.forEach(n => visibleNodes.add(n.id));
             
             // Traverse
             while(queue.length > 0) {
                 const node = queue.shift();
+                if (!node) continue;
                 visibleNodeObjects.push(node);
                 
                 if (expanded.has(node.id) && node.childIds) {
                     node.childIds.forEach((childId: string) => {
-                         // Find child node object (optimize this map later if needed)
-                         const child = nodes.find((n: any) => n.id === childId);
+                         const child = nodeById.get(childId);
                          if (child && !visibleNodes.has(child.id)) {
                              visibleNodes.add(child.id);
                              queue.push(child);
@@ -217,16 +223,13 @@ export const BookmarkGraph: React.FC = () => {
                 }
             }
             
-            const visibleLinks = links.filter((link: any) => {
-                 // ForceGraph creates objects for source/target, but initially they are IDs. 
-                 // We need to handle both if we are re-using data or not.
-                 // Ideally we filter raw links.
-                 const sourceId = typeof link.source === 'object' ? link.source.id : link.source;
-                 const targetId = typeof link.target === 'object' ? link.target.id : link.target;
-                 return visibleNodes.has(sourceId) && visibleNodes.has(targetId);
+            const visibleLinks = links.filter((link) => {
+                  const sourceId = typeof link.source === 'object' ? (link.source as RenderGraphNode).id : link.source;
+                  const targetId = typeof link.target === 'object' ? (link.target as RenderGraphNode).id : link.target;
+                  return visibleNodes.has(sourceId) && visibleNodes.has(targetId);
             });
 
-            Graph.graphData({ nodes: visibleNodeObjects, links: visibleLinks });
+            Graph.graphData({ nodes: visibleNodeObjects as RenderGraphNode[], links: visibleLinks as unknown as RenderGraphLink[] });
         };
 
         // Load Data
@@ -235,9 +238,10 @@ export const BookmarkGraph: React.FC = () => {
             const { nodes, links } = transformData(tree);
             
             allDataRef.current = { nodes, links };
+            nodeByIdRef.current = new Map(nodes.map((node) => [node.id, node]));
 
             // Find Root
-            rootNodeRef.current = nodes.find((n: any) => n.isRoot);
+            rootNodeRef.current = nodes.find((n) => n.isRoot) as RenderGraphNode || null;
             
             // Initially expand root(s)
             if (rootNodeRef.current) {
@@ -249,27 +253,32 @@ export const BookmarkGraph: React.FC = () => {
 
             // Apply specific physics forces
             // Prevent overlap
-            Graph.d3Force('collide', forceCollide((node: any) => {
+            Graph.d3Force('collide', forceCollide<RenderGraphNode>((node: RenderGraphNode) => {
                 const r = Math.sqrt(Math.max(0, node.val || 1)) * 2;
                 return r + 5; // Radius + Padding
             }));
 
             // Strong repulsion for spacing
-            Graph.d3Force('charge').strength(-500); // Stronger repulsion with bigger nodes
+            const chargeForce = Graph.d3Force('charge');
+            if (chargeForce) {
+                chargeForce.strength(-500); // Stronger repulsion with bigger nodes
+            }
             
             // Adjust links
-            Graph.d3Force('link')
-                .distance((link: any) => {
-                     // Larger distance for larger nodes
-                    return 100;
-                })
-                .strength(0.3);
+            const linkForce = Graph.d3Force('link');
+            if (linkForce) {
+                linkForce
+                    .distance(() => 100)
+                    .strength(0.3);
+            }
             
             // Warmup
-            Graph.d3Force('charge').strength(-1000); 
-            setTimeout(() => {
-                 Graph.d3Force('charge').strength(-500); 
-            }, 1000);
+            if (chargeForce) {
+                chargeForce.strength(-1000); 
+                setTimeout(() => {
+                     chargeForce.strength(-500); 
+                }, 1000);
+            }
         };
 
         loadData();
@@ -291,11 +300,11 @@ export const BookmarkGraph: React.FC = () => {
     }, []);
 
     // Helper to transform bookmark tree to graph nodes/links
-    const transformData = (tree: any[]): GraphData => {
-        const nodes: any[] = [];
-        const links: any[] = [];
+    const transformData = (tree: BookmarkNode[]): GraphData => {
+        const nodes: GraphNode[] = [];
+        const links: { source: string; target: string }[] = [];
 
-        const traverse = (items: any[], parentId: string | null = null, depth: number = 0) => {
+        const traverse = (items: BookmarkNode[], parentId: string | null = null, depth: number = 0) => {
             items.forEach(item => {
                 const isFolder = !item.url;
                 const isRoot = parentId === null || depth === 0;
@@ -305,17 +314,28 @@ export const BookmarkGraph: React.FC = () => {
                 if (isRoot) {
                     val = 2500; // Radius ~100
                 } else if (isFolder) {
-                    // Decay: 400 -> 225 -> 100
-                    // Radius: 40 -> 30 -> 20
                     val = Math.pow(Math.max(10, 20 - ((depth - 1) * 5)), 2); 
                 }
                 
                 // Collect child IDs
-                const childIds = item.children ? item.children.map((c: any) => c.id) : [];
+                const childIds = item.children ? item.children.map((c) => c.id) : [];
+
+                // Exception Guard for URL parsing (Issue 3)
+                let title = item.title;
+                if (!title && item.url) {
+                    try {
+                        title = new URL(item.url).hostname;
+                    } catch {
+                        title = 'Invalid Link';
+                    }
+                }
+                if (!title) {
+                    title = 'Folder';
+                }
 
                 nodes.push({
                     id: item.id,
-                    title: item.title || (item.url ? new URL(item.url).hostname : 'Folder'),
+                    title: title,
                     group: isFolder ? 'folder' : 'bookmark',
                     url: item.url,
                     val: val,

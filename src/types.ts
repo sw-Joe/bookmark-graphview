@@ -1,3 +1,5 @@
+import { NodeObject, LinkObject } from 'force-graph';
+
 // Chrome Bookmark Interfaces
 export interface BookmarkNode {
     id: string;
@@ -11,23 +13,29 @@ export interface BookmarkNode {
     blockInteraction?: boolean;
 }
 
-// Graph Interfaces (force-graph)
+// Graph Node definition matching our transformed data structure
 export interface GraphNode {
     id: string;
     title: string;
     group: 'folder' | 'bookmark';
     url?: string;
     val: number; // Size
-    x?: number;
-    y?: number;
+    isRoot: boolean;
+    depth: number;
+    childIds: string[];
+    parentId: string | null;
 }
 
-export interface GraphLink {
-    source: string | GraphNode;
-    target: string | GraphNode;
+// Physics-injected Render Node that extends force-graph's NodeObject
+export interface RenderGraphNode extends NodeObject, GraphNode {}
+
+// Render Link that extends force-graph's LinkObject
+export interface RenderGraphLink extends LinkObject<RenderGraphNode> {
+    source: string | RenderGraphNode;
+    target: string | RenderGraphNode;
 }
 
 export interface GraphData {
     nodes: GraphNode[];
-    links: GraphLink[];
+    links: { source: string; target: string }[];
 }

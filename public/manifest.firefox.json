@@ -15,9 +15,6 @@
             "strict_min_version": "109.0"
         }
     },
-    "background": {
-        "scripts": []
-    },
     "icons": {
         "16": "vite.svg",
         "48": "vite.svg",
