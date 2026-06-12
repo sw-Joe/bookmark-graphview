@@ -1,7 +1,7 @@
 import { forceCollide } from 'd3-force';
 import ForceGraph from 'force-graph';
 import React, { useEffect, useRef } from 'react';
-import { BookmarkNode, GraphNode, RenderGraphNode, RenderGraphLink, GraphData } from '../types';
+import { BookmarkNode, GraphData, GraphNode, RenderGraphLink, RenderGraphNode } from '../types';
 import { bookmarkService } from '../utils/bookmarkService';
 
 export const BookmarkGraph: React.FC = () => {
@@ -82,9 +82,9 @@ export const BookmarkGraph: React.FC = () => {
             ctx.arc(node.x ?? 0, node.y ?? 0, r, 0, 2 * Math.PI, false);
             
             if (isRoot) {
-                 ctx.fillStyle = '#FFD700'; // Gold
+                ctx.fillStyle = '#FFD700'; // Gold
             } else {
-                 ctx.fillStyle = node.group === 'folder' ? '#ffffff' : '#444444';
+                ctx.fillStyle = node.group === 'folder' ? '#ffffff' : '#444444';
             }
             ctx.fill();
 
@@ -147,14 +147,14 @@ export const BookmarkGraph: React.FC = () => {
                 // Folders hidden if very far out, but generally visible
                 if (globalScale > 0.4) showLabel = true; 
             } else if (node.depth > 2) {
-                 // Deep nodes: only show if Root is NOT visible (user has panned away/zoomed in deep)
-                 // OR if zoomed in extremely close
-                 if (!isRootVisible || globalScale > 3.0) {
-                     showLabel = true;
-                 }
+                // Deep nodes: only show if Root is NOT visible (user has panned away/zoomed in deep)
+                // OR if zoomed in extremely close
+                if (!isRootVisible || globalScale > 3.0) {
+                    showLabel = true;
+                }
             } else {
-                 // Standard bookmarks (depth 1-2)
-                 if (globalScale > 1.5) showLabel = true;
+                // Standard bookmarks (depth 1-2)
+                if (globalScale > 1.5) showLabel = true;
             }
 
             if (showLabel) {
@@ -214,19 +214,19 @@ export const BookmarkGraph: React.FC = () => {
                 
                 if (expanded.has(node.id) && node.childIds) {
                     node.childIds.forEach((childId: string) => {
-                         const child = nodeById.get(childId);
-                         if (child && !visibleNodes.has(child.id)) {
-                             visibleNodes.add(child.id);
-                             queue.push(child);
-                         }
+                        const child = nodeById.get(childId);
+                        if (child && !visibleNodes.has(child.id)) {
+                            visibleNodes.add(child.id);
+                            queue.push(child);
+                        }
                     });
                 }
             }
             
             const visibleLinks = links.filter((link) => {
-                  const sourceId = typeof link.source === 'object' ? (link.source as RenderGraphNode).id : link.source;
-                  const targetId = typeof link.target === 'object' ? (link.target as RenderGraphNode).id : link.target;
-                  return visibleNodes.has(sourceId) && visibleNodes.has(targetId);
+                const sourceId = typeof link.source === 'object' ? (link.source as RenderGraphNode).id : link.source;
+                const targetId = typeof link.target === 'object' ? (link.target as RenderGraphNode).id : link.target;
+                return visibleNodes.has(sourceId) && visibleNodes.has(targetId);
             });
 
             Graph.graphData({ nodes: visibleNodeObjects as RenderGraphNode[], links: visibleLinks as unknown as RenderGraphLink[] });
