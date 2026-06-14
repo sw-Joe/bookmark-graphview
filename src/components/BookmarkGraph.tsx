@@ -92,23 +92,25 @@ export const BookmarkGraph: React.FC = () => {
             .d3AlphaDecay(0.04)
             .d3VelocityDecay(0.3)
             .onNodeClick((node: RenderGraphNode) => {
-                if (node.group === 'folder') {
-                    if (expandedNodesRef.current.has(node.id)) {
-                        expandedNodesRef.current.delete(node.id);
-                    } else {
-                        expandedNodesRef.current.add(node.id);
-                    }
-                    updateVisibleGraph();
-                    
-                    Graph.d3AlphaTarget(0.3).restart();
-                    setTimeout(() => Graph.d3AlphaTarget(0), 300);
-                } else if (node.url) {
-                    window.location.href = node.url;
+            // 1. 폴더 노드:  상태 토글 및 리프레시
+            if (node.group === 'folder') {
+                if (expandedNodesRef.current.has(node.id)) {
+                    expandedNodesRef.current.delete(node.id);
                 } else {
-                    Graph.centerAt(node.x, node.y, 1000);
-                    Graph.zoom(4, 2000);
+                    expandedNodesRef.current.add(node.id);
                 }
-            });
+                updateVisibleGraph();
+                
+                Graph.d3AlphaTarget(0.3).restart();
+                setTimeout(() => Graph.d3AlphaTarget(0), 300);
+                return;
+            } 
+            
+            // 2. 북마크 노드: 외부 새 창 연결 처리 (웹 서비스 UX 관점 보정)
+            if (node.url) {
+                window.open(node.url, '_blank', 'noopener,noreferrer');
+            }
+        });
 
         graphInstanceRef.current = Graph;
 
