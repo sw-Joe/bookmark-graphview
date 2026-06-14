@@ -2,7 +2,12 @@ import { Search as SearchIcon } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import './Search.css';
 
-const Search: React.FC = () => {
+interface SearchProps {
+    onSearchChange: (query: string) => void;
+}
+
+// [교보재 최적화] React.memo 적용을 통해 App의 리렌더링으로부터 컴포넌트 보호
+const Search: React.FC<SearchProps> = React.memo(({ onSearchChange }) => {
     const [query, setQuery] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
 
@@ -10,11 +15,17 @@ const Search: React.FC = () => {
         inputRef.current?.focus();
     }, []);
 
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = e.target.value;
+        setQuery(val);
+        onSearchChange(val); // 실시간으로 부모에게 상태 전파
+    };
+
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         const trimmedQuery = query.trim();
         if (!trimmedQuery) return;
-        window.location.href = `https://www.google.com/search?q=${encodeURIComponent(trimmedQuery)}`;
+        window.open(`https://www.google.com/search?q=${encodeURIComponent(trimmedQuery)}`, '_blank', 'noopener,noreferrer');
     };
 
     return (
@@ -23,13 +34,16 @@ const Search: React.FC = () => {
                 ref={inputRef}
                 type="text"
                 className="search-input"
-                placeholder="Search the web..."
+                placeholder="Search bookmarks or the web..."
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={handleChange}
             />
             <SearchIcon className="search-icon" size={18} />
         </form>
     );
-};
+});
+
+// React.memo 디버깅용 네임 명시
+Search.displayName = 'Search';
 
 export default Search;

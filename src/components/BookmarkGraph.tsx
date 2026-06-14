@@ -4,7 +4,10 @@ import React, { useEffect, useRef } from 'react';
 import { BookmarkNode, GraphData, GraphNode, RenderGraphLink, RenderGraphNode } from '../types';
 import { bookmarkService } from '../utils/bookmarkService';
 
-// 문자열 트렁케이션 헬퍼 (LOD 연산 최적화)
+interface BookmarkGraphProps {
+    searchQuery: string;
+}
+
 const truncateText = (text: string, maxLength: number = 14): string => {
     if (text.length <= maxLength) return text;
     return text.substring(0, maxLength) + '...';
@@ -30,15 +33,13 @@ const transformData = (tree: BookmarkNode[]): GraphData => {
 
             let title = item.title;
             if (!title && item.url) {
-                try {
-                    title = new URL(item.url).hostname;
-                } catch {
-                    title = 'Invalid Link';
+                try { 
+                    title = new URL(item.url).hostname; 
+                } catch { 
+                    title = 'Invalid Link'; 
                 }
             }
-            if (!title) {
-                title = 'Folder';
-            }
+            if (!title) title = 'Folder';
 
             nodes.push({
                 id: item.id,
@@ -66,18 +67,81 @@ const transformData = (tree: BookmarkNode[]): GraphData => {
     return { nodes, links };
 };
 
-export const BookmarkGraph: React.FC = () => {
+export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const graphInstanceRef = useRef<ForceGraph<RenderGraphNode, RenderGraphLink> | null>(null);
     const rootNodeRef = useRef<RenderGraphNode | null>(null);
     const hoveredNodeRef = useRef<RenderGraphNode | null>(null);
     const imgCache = useRef<{ [key: string]: HTMLImageElement }>({});
+    
     const allDataRef = useRef<{ nodes: GraphNode[]; links: { source: string; target: string }[] }>({ nodes: [], links: [] });
     const expandedNodesRef = useRef<Set<string>>(new Set());
     const nodeByIdRef = useRef<Map<string, GraphNode>>(new Map());
-    
-    // [최적화 2] 증분 배치 최적화를 위한 노드 좌표 캐시 맵 생성
     const nodeCoordinatesCache = useRef<Map<string, { x: number; y: number }>>(new Map());
+
+    const updateVisibleGraph = () => {
+        const Graph = graphInstanceRef.current;
+        if (!Graph || allDataRef.current.nodes.length === 0) return;
+
+        const visibleNodeIds = new Set<string>();
+        const visibleNodeObjects: GraphNode[] = [];
+        const expanded = expandedNodesRef.current;
+        const nodeById = nodeByIdRef.current;
+
+        const roots = allDataRef.current.nodes.filter((n) => n.isRoot);
+        const queue = [...roots];
+        queue.forEach(n => visibleNodeIds.add(n.id));
+
+        while (queue.length > 0) {
+            const node = queue.shift();
+            if (!node) continue;
+            visibleNodeObjects.push(node);
+
+            if (expanded.has(node.id) && node.childIds) {
+                node.childIds.forEach((childId) => {
+                    const child = nodeById.get(childId);
+                    if (child && !visibleNodeIds.has(child.id)) {
+                        visibleNodeIds.add(child.id);
+                        queue.push(child);
+                    }
+                });
+            }
+        }
+
+        const renderedNodes = visibleNodeObjects.map((node) => {
+            const castedNode = node as RenderGraphNode;
+            const cachedCoords = nodeCoordinatesCache.current.get(node.id);
+            
+            if (cachedCoords) {
+                castedNode.x = cachedCoords.x;
+                castedNode.y = cachedCoords.y;
+            } else if (node.parentId) {
+                const parentCoords = nodeCoordinatesCache.current.get(node.parentId);
+                if (parentCoords) {
+                    castedNode.x = parentCoords.x + (Math.random() - 0.5) * 4;
+                    castedNode.y = parentCoords.y + (Math.random() - 0.5) * 4;
+                }
+            }
+            return castedNode;
+        });
+
+        const visibleLinks = allDataRef.current.links
+            .filter((link) => {
+                const sourceId = typeof link.source === 'object' ? (link.source as any).id : link.source;
+                const targetId = typeof link.target === 'object' ? (link.target as any).id : link.target;
+                return visibleNodeIds.has(sourceId) && visibleNodeIds.has(targetId);
+            })
+            .map(link => {
+                const sourceId = typeof link.source === 'object' ? (link.source as any).id : link.source;
+                const targetId = typeof link.target === 'object' ? (link.target as any).id : link.target;
+                return { source: sourceId, target: targetId };
+            });
+
+        Graph.graphData({ 
+            nodes: renderedNodes, 
+            links: visibleLinks as unknown as RenderGraphLink[] 
+        });
+    };
 
     useEffect(() => {
         if (!containerRef.current) return;
@@ -101,11 +165,11 @@ export const BookmarkGraph: React.FC = () => {
                         expandedNodesRef.current.add(node.id);
                     }
                     
-                    // 폴더 토글 시점의 좌표 백업 처리 후 그래프 갱신
                     updateVisibleGraph();
                     
-                    Graph.d3AlphaTarget(0.3).restart();
-                    setTimeout(() => Graph.d3AlphaTarget(0), 300);
+                    // [교정 완결] 무효한 d3AlphaTarget 체이닝을 완전히 제거하고, 
+                    // 라이브러리가 공식 제공하는 안전한 시뮬레이션 가열 표준 API로 교체
+                    Graph.d3ReheatSimulation();
                 } else if (node.url) {
                     window.open(node.url, '_blank', 'noopener,noreferrer');
                 }
@@ -114,7 +178,7 @@ export const BookmarkGraph: React.FC = () => {
         graphInstanceRef.current = Graph;
 
         Graph.nodeCanvasObject((node: RenderGraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
-            // [최적화 1] LOD 말줄임표 처리로 가독성 및 문자열 연산 부하 절감
+            const currentSearchQuery = (Graph as any)._currentSearchQuery || '';
             const label = truncateText(node.title, node.isRoot ? 24 : 14);
             let baseFontSize = 10;
             if (node.isRoot) baseFontSize = 48;
@@ -127,21 +191,22 @@ export const BookmarkGraph: React.FC = () => {
             const isRoot = node.isRoot;
             const r = Math.sqrt(Math.max(0, node.val || 1)) * 2;
 
-            // 좌표 캐시 최신화 루틴 병행
             if (node.x !== undefined && node.y !== undefined) {
                 nodeCoordinatesCache.current.set(node.id, { x: node.x, y: node.y });
             }
 
-            if (isHovered || isRoot) {
+            const isMatched = currentSearchQuery && node.title.toLowerCase().includes(currentSearchQuery.toLowerCase());
+
+            if (isHovered || isRoot || isMatched) {
                 ctx.beginPath();
                 ctx.arc(node.x ?? 0, node.y ?? 0, r + (isRoot ? 6 / globalScale : 2 / globalScale), 0, 2 * Math.PI, false); 
-                ctx.fillStyle = isRoot ? 'rgba(255, 215, 0, 0.2)' : 'rgba(255, 255, 255, 0.3)';
+                ctx.fillStyle = isRoot ? 'rgba(255, 215, 0, 0.2)' : (isMatched ? 'rgba(255, 69, 0, 0.4)' : 'rgba(255, 255, 255, 0.3)');
                 ctx.fill();
             }
 
             ctx.beginPath();
             ctx.arc(node.x ?? 0, node.y ?? 0, r, 0, 2 * Math.PI, false);
-            ctx.fillStyle = isRoot ? '#FFD700' : (node.group === 'folder' ? '#ffffff' : '#444444');
+            ctx.fillStyle = isRoot ? '#FFD700' : (isMatched ? '#FF4500' : (node.group === 'folder' ? '#ffffff' : '#444444'));
             ctx.fill();
 
             if (node.group === 'bookmark' && node.url) {
@@ -153,7 +218,6 @@ export const BookmarkGraph: React.FC = () => {
                     img.src = `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
                     imgCache.current[node.url] = img;
                 }
-
                 if (img.complete && img.naturalWidth > 0) {
                     ctx.save();
                     ctx.beginPath();
@@ -164,9 +228,8 @@ export const BookmarkGraph: React.FC = () => {
                 }
             }
 
-            // LOD 조건부 가시성 제어
             let showLabel = false;
-            if (isRoot || isHovered) showLabel = true;
+            if (isRoot || isHovered || isMatched) showLabel = true;
             else if (node.group === 'folder' && globalScale > 0.4) showLabel = true;
             else if (globalScale > 1.5) showLabel = true;
 
@@ -174,20 +237,27 @@ export const BookmarkGraph: React.FC = () => {
                 const textWidth = ctx.measureText(label).width;
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillStyle = isHovered ? '#ffffff' : (isRoot ? '#FFD700' : 'rgba(255, 255, 255, 0.8)');
+                ctx.fillStyle = isHovered ? '#ffffff' : (isMatched ? '#FF4500' : (isRoot ? '#FFD700' : 'rgba(255, 255, 255, 0.8)'));
                 ctx.fillText(label, node.x ?? 0, (node.y ?? 0) + r + (4 / globalScale), textWidth);
             }
         });
 
+        // 엣지 포인터 안전성 및 좌표 타입 가드 완전 적용
         Graph.linkCanvasObject((link: RenderGraphLink, ctx: CanvasRenderingContext2D, globalScale: number) => {
             if (globalScale < 0.6) return;
+            
             const start = link.source;
             const end = link.target;
-            if (typeof start !== 'object' || typeof end !== 'object') return;
+            
+            if (!start || !end || typeof start !== 'object' || typeof end !== 'object') return;
+            if (typeof start.x !== 'number' || typeof start.y !== 'number' || 
+                typeof end.x !== 'number' || typeof end.y !== 'number') {
+                return;
+            }
 
             ctx.beginPath();
-            ctx.moveTo(start.x ?? 0, start.y ?? 0);
-            ctx.lineTo(end.x ?? 0, end.y ?? 0);
+            ctx.moveTo(start.x, start.y);
+            ctx.lineTo(end.x, end.y);
             ctx.lineWidth = 1 / globalScale;
             ctx.strokeStyle = '#333333';
             ctx.stroke();
@@ -195,67 +265,8 @@ export const BookmarkGraph: React.FC = () => {
 
         Graph.onNodeHover((node: RenderGraphNode | null) => {
             hoveredNodeRef.current = node;
-            if (containerRef.current) {
-                containerRef.current.style.cursor = node ? 'pointer' : 'default';
-            }
+            if (containerRef.current) containerRef.current.style.cursor = node ? 'pointer' : 'default';
         });
-
-        const updateVisibleGraph = () => {
-            const { nodes, links } = allDataRef.current;
-            const expanded = expandedNodesRef.current;
-            const nodeById = nodeByIdRef.current;
-            
-            const visibleNodes = new Set<string>();
-            const visibleNodeObjects: GraphNode[] = [];
-            
-            const roots = nodes.filter((n) => n.isRoot);
-            const queue = [...roots];
-            queue.forEach(n => visibleNodes.add(n.id));
-            
-            while(queue.length > 0) {
-                const node = queue.shift();
-                if (!node) continue;
-                visibleNodeObjects.push(node);
-                
-                if (expanded.has(node.id) && node.childIds) {
-                    node.childIds.forEach((childId: string) => {
-                        const child = nodeById.get(childId);
-                        if (child && !visibleNodes.has(child.id)) {
-                            visibleNodes.add(child.id);
-                            queue.push(child);
-                        }
-                    });
-                }
-            }
-            
-            // [최적화 2] 좌표 캐싱 기반 배치 최적화 핵심부 (Incremental Layout Warm-up)
-            // 새로 화면에 등장할 노드들의 좌표 초기값을 부모 노드의 현재 좌표 부근으로 강제 고정하여 튕김 현상을 억제합니다.
-            const renderedNodes = visibleNodeObjects.map((node) => {
-                const castedNode = node as RenderGraphNode;
-                const cachedCoords = nodeCoordinatesCache.current.get(node.id);
-                
-                if (cachedCoords) {
-                    castedNode.x = cachedCoords.x;
-                    castedNode.y = cachedCoords.y;
-                } else if (node.parentId) {
-                    const parentCoords = nodeCoordinatesCache.current.get(node.parentId);
-                    if (parentCoords) {
-                        // 미세한 난수를 더해 배치함으로써 물리 겹침 분산 연산 오버헤드 최소화
-                        castedNode.x = parentCoords.x + (Math.random() - 0.5) * 4;
-                        castedNode.y = parentCoords.y + (Math.random() - 0.5) * 4;
-                    }
-                }
-                return castedNode;
-            });
-
-            const visibleLinks = links.filter((link) => {
-                const sourceId = typeof link.source === 'object' ? (link.source as RenderGraphNode).id : link.source;
-                const targetId = typeof link.target === 'object' ? (link.target as RenderGraphNode).id : link.target;
-                return visibleNodes.has(sourceId) && visibleNodes.has(targetId);
-            });
-
-            Graph.graphData({ nodes: renderedNodes, links: visibleLinks as unknown as RenderGraphLink[] });
-        };
 
         const loadData = async () => {
             const tree = await bookmarkService.getTree();
@@ -271,16 +282,40 @@ export const BookmarkGraph: React.FC = () => {
 
             updateVisibleGraph();
 
-            Graph.d3Force('collide', forceCollide<RenderGraphNode>((node: RenderGraphNode) => {
-                const r = Math.sqrt(Math.max(0, node.val || 1)) * 2;
-                return r + 5;
-            }));
+            // 1. 충돌 반경 포스는 기존 수식 유지 (겹침 방지)
+            Graph.d3Force('collide', forceCollide<RenderGraphNode>((node: RenderGraphNode) => 
+                Math.sqrt(Math.max(0, node.val || 1)) * 2 + 5
+            ));
 
+            // 2. [교정] 계층별 차등 반발력(charge) 설정
+            // depth=1 대분류 폴더 노드 간의 상호 척력을 줄여 중앙 밀집 유도
             const chargeForce = Graph.d3Force('charge');
-            if (chargeForce) chargeForce.strength(-150);
+            if (chargeForce) {
+                (chargeForce as any).strength((node: RenderGraphNode) => {
+                    if (node.isRoot) return 0; // 루트는 중심점 고정이므로 척력 불필요
+                    if (node.depth === 1) return -50; // depth=1 폴더 간 반발력을 대폭 축소 (기존 -150)
+                    return -120; // 하위 자식 노드들은 적절한 거리를 유지하도록 밀어냄
+                });
+            }
             
+            // 3. [교정] 계층별 탄성 연결선 거리(distance) 차등 설정
+            // 루트와 대분류(depth=1) 사이의 끈을 짧고 단단하게 조여 거리를 좁힘
             const linkForce = Graph.d3Force('link');
-            if (linkForce) linkForce.distance(() => 40).strength(0.3);
+            if (linkForce) {
+                (linkForce as any)
+                    .distance((link: any) => {
+                        const sourceNode = link.source as RenderGraphNode;
+                        const targetNode = link.target as RenderGraphNode;
+                        
+                        // 루트 노드와 depth=1 폴더를 연결하는 엣지인 경우 거리를 25px로 단축
+                        if (sourceNode.isRoot || targetNode.isRoot) {
+                            return 25;
+                        }
+                        // 그 외 하위 계층 간의 거리는 45px로 확보하여 가독성 증대
+                        return 45;
+                    })
+                    .strength(0.4); // 결합 강도를 0.3에서 0.4로 올려 중심부 구속력 강화
+            }
         };
 
         loadData();
@@ -301,6 +336,21 @@ export const BookmarkGraph: React.FC = () => {
             graphInstanceRef.current = null;
         };
     }, []);
+
+    useEffect(() => {
+        if (!graphInstanceRef.current) return;
+        
+        (graphInstanceRef.current as any)._currentSearchQuery = searchQuery;
+        graphInstanceRef.current.d3ReheatSimulation();
+
+        if (searchQuery) {
+            const match = allDataRef.current.nodes.find(n => n.title.toLowerCase().includes(searchQuery.toLowerCase())) as RenderGraphNode;
+            if (match && match.x !== undefined && match.y !== undefined) {
+                graphInstanceRef.current.centerAt(match.x, match.y, 600);
+                graphInstanceRef.current.zoom(2.5, 600);
+            }
+        }
+    }, [searchQuery]);
 
     return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 };
