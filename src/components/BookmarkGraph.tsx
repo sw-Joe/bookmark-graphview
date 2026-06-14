@@ -241,7 +241,7 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery, physi
             }
         });
 
-        // 타이밍 가드 수립 (link.source 포인터 결합 지연 버그 원천 진압)
+        // 타이밍 가드 (link.source 포인터 결합 지연 버그 방지)
         Graph.linkCanvasObject((link: RenderGraphLink, ctx: CanvasRenderingContext2D, globalScale: number) => {
             if (globalScale < 0.6) return;
             

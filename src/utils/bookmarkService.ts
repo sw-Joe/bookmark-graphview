@@ -1,6 +1,6 @@
 import { BookmarkNode } from '../types';
 
-// Mozilla/Firefox 백업 포맷을 내부 표준 도메인 모델로 변환하는 정문화 함수
+// Mozilla/Firefox 백업 포맷을 내부 표준 도메인 모델로 변환
 const transformBackupToStandard = (backupNode: any): BookmarkNode => {
     const isFolder = backupNode.type === 'text/x-moz-place-container' || (!backupNode.uri && !!backupNode.children);
     
@@ -24,7 +24,7 @@ export const bookmarkService = {
 
         try {
             // 업로드된 실제 백업 파일 데이터 자산 명세와 동기화
-            const response = await fetch('/bookmarks-2026-06-08.json');
+            const response = await fetch('/bookmarks.json');
             if (!response.ok) {
                 throw new Error(`HTTP fetch status error: ${response.status}`);
             }
