@@ -37,7 +37,7 @@ export const bookmarkService = {
         let parsedTree: BookmarkNode[] = [];
 
         try {
-            const response = await fetch('/bookmarks-2026-06-14.json');
+            const response = await fetch('/bookmarks-2026-06-08.json');
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
