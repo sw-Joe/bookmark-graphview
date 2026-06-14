@@ -1,92 +1,134 @@
+/* 메인 쉘 전체 높이 제어 */
 .app-shell {
+  position: relative;
   width: 100%;
   height: 100vh;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 2rem;
-  position: relative;
-  overflow: hidden;
-  background: #000;
+  background-color: #000000;
+  padding: 24px;
+  box-sizing: border-box;
 }
 
+/* 대시보드 후광 효과 은은한 백그라운드 그라데이션 */
 .app-glow {
   position: absolute;
-  top: -20%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 800px;
-  height: 600px;
-  background: rgba(30, 64, 175, 0.2);
-  border-radius: 9999px;
-  filter: blur(120px);
+  top: -10%;
+  left: 25%;
+  width: 50%;
+  height: 40%;
+  background: radial-gradient(circle, rgba(255, 215, 0, 0.05) 0%, rgba(0, 0, 0, 0) 70%);
   pointer-events: none;
-  z-index: 0;
+  z-index: 1;
 }
 
+/* 시스템 상단 타이틀 영역 */
 .app-header {
-  width: 100%;
-  max-width: 72rem;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  margin-bottom: 2rem;
   position: relative;
   z-index: 10;
+  margin-bottom: 20px;
 }
 
 .app-title {
-  font-size: clamp(2rem, 4vw, 2.5rem);
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  text-align: center;
-  user-select: none;
-  background: linear-gradient(135deg, #fff 0%, #9ca3af 100%);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  background: linear-gradient(to right, #ffffff, #a3a3a3);
   -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  -webkit-text-fill-color: transparent;
+  margin: 0;
 }
 
+/* 검색바 컨테이너 배치 레이어 */
 .app-search {
-  width: 100%;
-  max-width: 36rem;
-  margin-bottom: 2rem;
-  position: relative;
-  z-index: 20;
-}
-
-.app-content {
-  width: 100%;
-  max-width: 80rem;
-  flex: 1;
   position: relative;
   z-index: 10;
-  overflow: hidden;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto 24px auto;
+}
+
+/* 메인 작업 영역 플렉스 레이아웃 */
+.app-main-layout {
+  display: flex;
+  width: 100%;
+  height: calc(100% - 140px);
+  gap: 20px;
+  position: relative;
+  z-index: 5;
+}
+
+/* 물리 제어용 우측 사이드바 패널 (계획서 UX 명세 반영) */
+.physics-control-panel {
+  width: 280px;
+  background-color: #111111;
+  border: 1px solid #222222;
+  padding: 20px;
+  border-radius: 8px;
+  color: #ffffff;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
 }
 
-.app-graph-frame {
+.physics-panel-title {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 0 0 20px 0;
+  border-bottom: 1px solid #222222;
+  padding-bottom: 10px;
+  color: #fff;
+  letter-spacing: -0.02em;
+}
+
+/* 슬라이더 인풋 트랙 전역 통제 */
+.sliders-group-container input[type="range"] {
+  -webkit-appearance: none;
   width: 100%;
-  height: 100%;
-  border-radius: 1rem;
-  border: 1px solid #27272a;
-  background: rgba(24, 24, 27, 0.3);
-  backdrop-filter: blur(4px);
-  overflow: hidden;
-  position: relative;
+  height: 4px;
+  background: #333333;
+  border-radius: 2px;
+  outline: none;
 }
 
-@media (max-width: 640px) {
-  .app-shell {
-    padding: 1rem;
-  }
+.sliders-group-container input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  background: #ffffff;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
 
-  .app-header {
-    margin-bottom: 1.25rem;
-  }
+.sliders-group-container input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
 
-  .app-search {
-    margin-bottom: 1.25rem;
+/* 지식 그래프 캔버스 서빙 전용 프레임 */
+.app-graph-frame {
+  flex: 1;
+  height: 100%;
+  position: relative;
+  border: 1px solid #333333;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: #050505;
+}
+
+/* 애니메이션 컴포넌트 등장 연출 이펙트 */
+.animate-fade-in-up {
+  animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

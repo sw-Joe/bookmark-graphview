@@ -24,7 +24,7 @@ export const bookmarkService = {
 
         try {
             // 업로드된 실제 백업 파일 데이터 자산 명세와 동기화
-            const response = await fetch('/bookmarks-2026-06-14.json');
+            const response = await fetch('/bookmarks-2026-06-08.json');
             if (!response.ok) {
                 throw new Error(`HTTP fetch status error: ${response.status}`);
             }

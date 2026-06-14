@@ -18,8 +18,6 @@ const INITIAL_PHYSICS_CONFIG: PhysicsConfig = {
 
 const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
-  
-  // 인풋 랙 방지를 위한 동시성 비동기 지연 값 카피
   const deferredQuery = useDeferredValue(searchQuery);
 
   const [physics, setPhysics] = useState<PhysicsConfig>({ ...INITIAL_PHYSICS_CONFIG });
@@ -43,45 +41,48 @@ const App: React.FC = () => {
         <Search onSearchChange={setSearchQuery} />
       </div>
 
-      <div className="app-main-layout" style={{ display: 'flex', width: '100%', height: 'calc(100% - 140px)', gap: '20px' }}>
-        <section className="physics-control-panel" style={{ width: '280px', background: '#111', padding: '20px', borderRadius: '8px', color: '#fff', zIndex: 10, display: 'flex', flexDirection: 'column' }}>
-          <h2 style={{ fontSize: '16px', marginBottom: '20px', borderBottom: '1px solid #333', paddingBottom: '10px' }}>
-            Physics Dashboard
-          </h2>
-          
-          <div className="sliders-group-container">
-            <PhysicsSlider
-              label="노드간 반발력 (척력)"
-              min={-1000}
-              max={-10}
-              step={10}
-              value={physics.chargeStrength}
-              onChange={(val) => handleConfigChange('chargeStrength', val)}
-            />
+      <div className="app-main-layout animate-fade-in-up">
+        {/* 리팩토링된 클래스 기반 사이드바 */}
+        <section className="physics-control-panel">
+          <div>
+            <h2 className="physics-panel-title">Physics Dashboard</h2>
+            
+            <div className="sliders-group-container">
+              <PhysicsSlider
+                label="노드간 반발력 (척력)"
+                min={-1000}
+                max={-10}
+                step={10}
+                value={physics.chargeStrength}
+                onChange={(val) => handleConfigChange('chargeStrength', val)}
+              />
 
-            <PhysicsSlider
-              label="연결선 목표 거리"
-              min={10}
-              max={200}
-              step={5}
-              value={physics.linkDistance}
-              onChange={(val) => handleConfigChange('linkDistance', val)}
-            />
+              <PhysicsSlider
+                label="연결선 목표 거리"
+                min={10}
+                max={200}
+                step={5}
+                value={physics.linkDistance}
+                onChange={(val) => handleConfigChange('linkDistance', val)}
+              />
 
-            <PhysicsSlider
-              label="연결선 장력 강도"
-              min={0.05}
-              max={1}
-              step={0.05}
-              value={physics.linkStrength}
-              onChange={(val) => handleConfigChange('linkStrength', val)}
-            />
+              <PhysicsSlider
+                label="연결선 장력 강도"
+                min={0.05}
+                max={1}
+                step={0.05}
+                value={physics.linkStrength}
+                onChange={(val) => handleConfigChange('linkStrength', val)}
+              />
+            </div>
           </div>
 
           <button 
             type="button"
+            className="reset-action-btn"
             onClick={handleResetToDefault}
-            style={{\n              width: '100%',
+            style={{
+              width: '100%',
               padding: '10px',
               background: '#c92a2a',
               color: '#fff',
@@ -100,7 +101,8 @@ const App: React.FC = () => {
           </button>
         </section>
 
-        <div className="app-graph-frame" style={{ flex: 1, height: '100%', position: 'relative' }}>
+        {/* 리팩토링된 클래스 기반 그래프 프레임 */}
+        <div className="app-graph-frame">
           <BookmarkGraph searchQuery={deferredQuery} physicsConfig={physics} />
         </div>
       </div>

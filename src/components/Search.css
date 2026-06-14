@@ -1,35 +1,44 @@
 .search-container {
-  width: 100%;
-  max-width: 600px;
   position: relative;
-  margin-top: 1rem;
+  width: 100%;
+  display: flex;
+  align-items: center;
 }
 
 .search-input {
   width: 100%;
-  padding: 0.8rem 1rem 0.8rem 3rem;
-  font-size: 1rem;
-  background-color: transparent;
-  border: 1px solid #333;
-  border-radius: 999px;
-  color: white;
-  transition: border-color 0.2s;
+  background-color: #111111;
+  border: 1px solid #222222;
+  color: #ffffff;
+  padding: 12px 16px 12px 44px;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: all 0.2s ease-in-out;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
 }
 
+/* 포커스 시 테두리 흰색 확장 및 은은한 발광 레이어 */
 .search-input:focus {
-  border-color: #666;
+  border-color: #444444;
+  background-color: #151515;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.05), 0 4px 15px rgba(0, 0, 0, 0.4);
 }
 
+.search-input::placeholder {
+  color: #555555;
+  font-weight: 400;
+}
+
+/* 내부 검색 아이콘 절대 좌표 정렬 */
 .search-icon {
   position: absolute;
-  left: 1rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #666;
-  width: 18px;
-  height: 18px;
+  left: 16px;
+  color: #555555;
+  pointer-events: none;
+  transition: color 0.2s ease-in-out;
 }
 
-.search-input:focus + .search-icon {
-  color: #fff;
+.search-container:focus-within .search-icon {
+  color: #ffffff;
 }
