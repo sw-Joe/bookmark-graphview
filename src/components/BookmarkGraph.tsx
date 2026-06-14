@@ -4,6 +4,66 @@ import React, { useEffect, useRef } from 'react';
 import { BookmarkNode, GraphData, GraphNode, RenderGraphLink, RenderGraphNode } from '../types';
 import { bookmarkService } from '../utils/bookmarkService';
 
+// 데이터 변환 로직
+const transformData = (tree: BookmarkNode[]): GraphData => {
+    const nodes: GraphNode[] = [];
+    const links: { source: string; target: string }[] = [];
+
+    const traverse = (items: BookmarkNode[], parentId: string | null = null, depth: number = 0) => {
+        items.forEach(item => {
+            const isFolder = !item.url;
+            const isRoot = parentId === null || depth === 0;
+
+            // node sizing
+            let val = 4;
+
+            if (isRoot) {
+                val = 150; // 루트 노드 크기 최대치 설정
+            } else if (isFolder) {
+                // 지수 감쇄 함수를 활용하여 루트 직후 폴더(depth 1)는 약 33, 다음 단계는 15 수준으로 세련되게 낙하
+                val = Math.max(6, Math.floor(75 * Math.exp(-0.8 * depth)));
+            }
+            
+            const childIds = item.children ? item.children.map((c) => c.id) : [];
+
+            let title = item.title;
+            if (!title && item.url) {
+                try {
+                    title = new URL(item.url).hostname;
+                } catch {
+                    title = 'Invalid Link';
+                }
+            }
+            if (!title) {
+                title = 'Folder';
+            }
+
+            nodes.push({
+                id: item.id,
+                title: title,
+                group: isFolder ? 'folder' : 'bookmark',
+                url: item.url,
+                val: val,
+                isRoot: isRoot,
+                depth: depth,
+                childIds: childIds,
+                parentId: parentId
+            });
+
+            if (parentId) {
+                links.push({ source: parentId, target: item.id });
+            }
+
+            if (item.children) {
+                traverse(item.children, item.id, depth + 1);
+            }
+        });
+    };
+
+    traverse(tree);
+    return { nodes, links };
+};
+
 export const BookmarkGraph: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
     const graphInstanceRef = useRef<ForceGraph<RenderGraphNode, RenderGraphLink> | null>(null);
@@ -17,19 +77,22 @@ export const BookmarkGraph: React.FC = () => {
     useEffect(() => {
         if (!containerRef.current) return;
 
-        // Initialize Graph (Strict type cast to handle ForceGraph factory function pattern)
-        const Graph = (ForceGraph as unknown as () => (el: HTMLElement) => ForceGraph<RenderGraphNode, RenderGraphLink>)()(containerRef.current)
-            .backgroundColor('#000000')
+        // 런타임 innerHTML 에러를 방지하는 표준 ForceGraph 인스턴스 생성 루틴
+        // 라이브러리의 실체 함수를 안전하게 호출하여 DOM 노드를 주입
+        const graphInitializer = ForceGraph();
+        const Graph = graphInitializer(containerRef.current) as unknown as ForceGraph<RenderGraphNode, RenderGraphLink>;
+
+        // 기존 설정 속성 파이프라인 바인딩
+        Graph.backgroundColor('#222222')
             .nodeId('id')
             .nodeLabel('title')
             .nodeVal('val')
-            .linkColor(() => '#333333')
+            .linkColor(() => '#444444')
             .nodeColor((node: RenderGraphNode) => node.group === 'folder' ? '#ffffff' : '#888888')
-            .d3AlphaDecay(0.04) // Stabilize faster
-            .d3VelocityDecay(0.3) // Higher friction
+            .d3AlphaDecay(0.04)
+            .d3VelocityDecay(0.3)
             .onNodeClick((node: RenderGraphNode) => {
                 if (node.group === 'folder') {
-                    // Toggle expansion
                     if (expandedNodesRef.current.has(node.id)) {
                         expandedNodesRef.current.delete(node.id);
                     } else {
@@ -37,7 +100,6 @@ export const BookmarkGraph: React.FC = () => {
                     }
                     updateVisibleGraph();
                     
-                    // Re-heat simulation slightly to arrange new nodes
                     Graph.d3AlphaTarget(0.3).restart();
                     setTimeout(() => Graph.d3AlphaTarget(0), 300);
                 } else if (node.url) {
@@ -50,45 +112,37 @@ export const BookmarkGraph: React.FC = () => {
 
         graphInstanceRef.current = Graph;
 
-        // Custom Node Rendering
+        // Custom Node Rendering Canvas Object
         Graph.nodeCanvasObject((node: RenderGraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
             const label = node.title;
-            // Dynamic font size based on hierarchy
             let baseFontSize = 10;
-            if (node.isRoot) baseFontSize = 48; // Much larger
+            if (node.isRoot) baseFontSize = 48;
             else if (node.group === 'folder') baseFontSize = 24;
 
-            // Scale font size to keep readable but relative to zoom
             const fontSize = Math.max(4, baseFontSize / globalScale); 
             ctx.font = `${node.isRoot ? 'bold ' : ''}${fontSize}px Sans-Serif`;
             
-            // Interaction State check
             const isHovered = node === hoveredNodeRef.current;
             const isRoot = node.isRoot;
-            
-            // Node Radius
             const r = Math.sqrt(Math.max(0, node.val || 1)) * 2;
 
-            // Draw Glow (Hover or Root)
             if (isHovered || isRoot) {
                 ctx.beginPath();
-                ctx.arc(node.x ?? 0, node.y ?? 0, r + (isRoot ? 20 / globalScale : 4 / globalScale), 0, 2 * Math.PI, false); 
-                ctx.fillStyle = isRoot ? 'rgba(255, 215, 0, 0.3)' : 'rgba(255, 255, 255, 0.4)'; // Gold for root
+                ctx.arc(node.x ?? 0, node.y ?? 0, r + (isRoot ? 6 / globalScale : 2 / globalScale), 0, 2 * Math.PI, false);
+                ctx.fillStyle = isRoot ? 'rgba(255, 215, 0, 0.3)' : 'rgba(255, 255, 255, 0.4)';
                 ctx.fill();
             }
 
-            // Draw Node Circle
             ctx.beginPath();
             ctx.arc(node.x ?? 0, node.y ?? 0, r, 0, 2 * Math.PI, false);
             
             if (isRoot) {
-                ctx.fillStyle = '#FFD700'; // Gold
+                ctx.fillStyle = '#FFD700';
             } else {
                 ctx.fillStyle = node.group === 'folder' ? '#ffffff' : '#444444';
             }
             ctx.fill();
 
-            // Draw Favicon for bookmarks
             if (node.group === 'bookmark' && node.url) {
                 let img = imgCache.current[node.url];
                 if (!img) {
@@ -111,23 +165,19 @@ export const BookmarkGraph: React.FC = () => {
                     try {
                         ctx.drawImage(img, (node.x ?? 0) - r, (node.y ?? 0) - r, r * 2, r * 2);
                     } catch {
-                         // Fallback
+                        // Canvas Context Fallback Guard
                     }
                     ctx.restore();
                 }
             }
 
-            // Check if Root is Visible in Viewport
             let isRootVisible = true;
             if (rootNodeRef.current) {
                 const { x, y } = rootNodeRef.current;
-                // ForceGraph gives us graph2ScreenCoords
                 const screenCoords = Graph.graph2ScreenCoords(x ?? 0, y ?? 0);
                 const width = Graph.width();
                 const height = Graph.height();
-                
-                // Add some buffer (e.g. consider visible if within screen + small margin)
-                const margin = r * globalScale; // Use root radius size as margin
+                const margin = r * globalScale;
                 if (
                     screenCoords.x < -margin || 
                     screenCoords.x > width + margin || 
@@ -138,22 +188,16 @@ export const BookmarkGraph: React.FC = () => {
                 }
             }
 
-            // Draw Label - Visibility Logic
             let showLabel = false;
-            
             if (isRoot || isHovered) {
                 showLabel = true;
             } else if (node.group === 'folder') {
-                // Folders hidden if very far out, but generally visible
                 if (globalScale > 0.4) showLabel = true; 
             } else if (node.depth > 2) {
-                // Deep nodes: only show if Root is NOT visible (user has panned away/zoomed in deep)
-                // OR if zoomed in extremely close
                 if (!isRootVisible || globalScale > 3.0) {
                     showLabel = true;
                 }
             } else {
-                // Standard bookmarks (depth 1-2)
                 if (globalScale > 1.5) showLabel = true;
             }
 
@@ -162,18 +206,16 @@ export const BookmarkGraph: React.FC = () => {
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillStyle = isHovered ? '#ffffff' : (isRoot ? '#FFD700' : 'rgba(255, 255, 255, 0.8)');
-                ctx.fillText(label, node.x ?? 0, (node.y ?? 0) + r + fontSize, textWidth);
+                ctx.fillText(label, node.x ?? 0, (node.y ?? 0) + r + (4 / globalScale), textWidth);
             }
         });
 
-        // Edge/Link Rendering / LOD
+        // Link Drawing Logic
         Graph.linkCanvasObject((link: RenderGraphLink, ctx: CanvasRenderingContext2D, globalScale: number) => {
-            // LOD: Hide edges if zoomed out too far, unless hovered
             if (globalScale < 0.6) return;
 
             const start = link.source;
             const end = link.target;
-
             if (typeof start !== 'object' || typeof end !== 'object') return;
 
             ctx.beginPath();
@@ -184,7 +226,6 @@ export const BookmarkGraph: React.FC = () => {
             ctx.stroke();
         });
 
-        // Add custom hover logic
         Graph.onNodeHover((node: RenderGraphNode | null) => {
             hoveredNodeRef.current = node;
             if (containerRef.current) {
@@ -192,7 +233,7 @@ export const BookmarkGraph: React.FC = () => {
             }
         });
 
-        // Filter and update graph data based on expansion state
+        // 가시적 그래프 데이터 동기화 서브루틴 분리 및 가독성 개선
         const updateVisibleGraph = () => {
             const { nodes, links } = allDataRef.current;
             const expanded = expandedNodesRef.current;
@@ -201,12 +242,10 @@ export const BookmarkGraph: React.FC = () => {
             const visibleNodes = new Set<string>();
             const visibleNodeObjects: GraphNode[] = [];
             
-            // Always show roots
             const roots = nodes.filter((n) => n.isRoot);
             const queue = [...roots];
             queue.forEach(n => visibleNodes.add(n.id));
             
-            // Traverse
             while(queue.length > 0) {
                 const node = queue.shift();
                 if (!node) continue;
@@ -232,7 +271,7 @@ export const BookmarkGraph: React.FC = () => {
             Graph.graphData({ nodes: visibleNodeObjects as RenderGraphNode[], links: visibleLinks as unknown as RenderGraphLink[] });
         };
 
-        // Load Data
+        // Asynchronous Data loading routine
         const loadData = async () => {
             const tree = await bookmarkService.getTree();
             const { nodes, links } = transformData(tree);
@@ -240,50 +279,39 @@ export const BookmarkGraph: React.FC = () => {
             allDataRef.current = { nodes, links };
             nodeByIdRef.current = new Map(nodes.map((node) => [node.id, node]));
 
-            // Find Root
             rootNodeRef.current = nodes.find((n) => n.isRoot) as RenderGraphNode || null;
-            
-            // Initially expand root(s)
             if (rootNodeRef.current) {
                 expandedNodesRef.current.add(rootNodeRef.current.id);
             }
 
-            // Initial Draw
             updateVisibleGraph();
 
-            // Apply specific physics forces
-            // Prevent overlap
+            // D3 물리 엔진 설정 복구
             Graph.d3Force('collide', forceCollide<RenderGraphNode>((node: RenderGraphNode) => {
                 const r = Math.sqrt(Math.max(0, node.val || 1)) * 2;
-                return r + 5; // Radius + Padding
+                return r + 5;
             }));
 
-            // Strong repulsion for spacing
             const chargeForce = Graph.d3Force('charge');
             if (chargeForce) {
-                chargeForce.strength(-500); // Stronger repulsion with bigger nodes
+                chargeForce.strength(-150);
             }
             
-            // Adjust links
             const linkForce = Graph.d3Force('link');
             if (linkForce) {
-                linkForce
-                    .distance(() => 100)
-                    .strength(0.3);
+                linkForce.distance(() => 40).strength(0.3);
             }
             
-            // Warmup
             if (chargeForce) {
                 chargeForce.strength(-1000); 
                 setTimeout(() => {
-                     chargeForce.strength(-500); 
+                    chargeForce.strength(-500); 
                 }, 1000);
             }
         };
 
         loadData();
 
-        // Resize Handler
         const handleResize = () => {
             if (containerRef.current) {
                 Graph.width(containerRef.current.clientWidth);
@@ -294,70 +322,18 @@ export const BookmarkGraph: React.FC = () => {
 
         return () => {
             window.removeEventListener('resize', handleResize);
-             graphInstanceRef.current = null;
+            // 인스턴스 전역 수명주기 해제 안전장치
+            if (graphInstanceRef.current) {
+                try {
+                    (graphInstanceRef.current as any)._destructor?.();
+                } catch {
+                    // Fallback
+                }
+            }
+            graphInstanceRef.current = null;
         };
 
     }, []);
-
-    // Helper to transform bookmark tree to graph nodes/links
-    const transformData = (tree: BookmarkNode[]): GraphData => {
-        const nodes: GraphNode[] = [];
-        const links: { source: string; target: string }[] = [];
-
-        const traverse = (items: BookmarkNode[], parentId: string | null = null, depth: number = 0) => {
-            items.forEach(item => {
-                const isFolder = !item.url;
-                const isRoot = parentId === null || depth === 0;
-
-                // Calculate size based on depth - Aggressive Resize
-                let val = 4; // Default Bookmark (Radius ~4)
-                if (isRoot) {
-                    val = 2500; // Radius ~100
-                } else if (isFolder) {
-                    val = Math.pow(Math.max(10, 20 - ((depth - 1) * 5)), 2); 
-                }
-                
-                // Collect child IDs
-                const childIds = item.children ? item.children.map((c) => c.id) : [];
-
-                // Exception Guard for URL parsing (Issue 3)
-                let title = item.title;
-                if (!title && item.url) {
-                    try {
-                        title = new URL(item.url).hostname;
-                    } catch {
-                        title = 'Invalid Link';
-                    }
-                }
-                if (!title) {
-                    title = 'Folder';
-                }
-
-                nodes.push({
-                    id: item.id,
-                    title: title,
-                    group: isFolder ? 'folder' : 'bookmark',
-                    url: item.url,
-                    val: val,
-                    isRoot: isRoot,
-                    depth: depth,
-                    childIds: childIds, // Store child IDs for traversal
-                    parentId: parentId
-                });
-
-                if (parentId) {
-                    links.push({ source: parentId, target: item.id });
-                }
-
-                if (item.children) {
-                    traverse(item.children, item.id, depth + 1);
-                }
-            });
-        };
-
-        traverse(tree);
-        return { nodes, links };
-    };
 
     return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 };

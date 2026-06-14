@@ -7,14 +7,14 @@ const Search: React.FC = () => {
     const inputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-        // Auto-focus on mount
         inputRef.current?.focus();
     }, []);
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!query.trim()) return;
-        window.location.href = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+        const trimmedQuery = query.trim();
+        if (!trimmedQuery) return;
+        window.location.href = `https://www.google.com/search?q=${encodeURIComponent(trimmedQuery)}`;
     };
 
     return (
@@ -26,7 +26,6 @@ const Search: React.FC = () => {
                 placeholder="Search the web..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                autoFocus
             />
             <SearchIcon className="search-icon" size={18} />
         </form>
