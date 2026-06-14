@@ -1,13 +1,36 @@
 import React, { useDeferredValue, useState } from 'react';
 import './App.css';
 import BookmarkGraph from './components/BookmarkGraph';
+import PhysicsSlider from './components/PhysicsSlider';
 import Search from './components/Search';
+
+export interface PhysicsConfig {
+  chargeStrength: number;
+  linkDistance: number;
+  linkStrength: number;
+}
+
+const INITIAL_PHYSICS_CONFIG: PhysicsConfig = {
+  chargeStrength: -150,
+  linkDistance: 40,
+  linkStrength: 0.3
+};
 
 const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   
-  // 검색어 타이핑 반응 속도를 무력화하지 않도록 무거운 그래프 연산용 값을 비동기 지연 값으로 래핑
+  // 인풋 랙 방지를 위한 동시성 비동기 지연 값 카피
   const deferredQuery = useDeferredValue(searchQuery);
+
+  const [physics, setPhysics] = useState<PhysicsConfig>({ ...INITIAL_PHYSICS_CONFIG });
+
+  const handleConfigChange = (key: keyof PhysicsConfig, value: number) => {
+    setPhysics(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleResetToDefault = () => {
+    setPhysics({ ...INITIAL_PHYSICS_CONFIG });
+  };
 
   return (
     <main className="app-shell">
@@ -15,14 +38,70 @@ const App: React.FC = () => {
       <header className="app-header">
         <h1 className="app-title">Graphview Dashboard</h1>
       </header>
+      
       <div className="app-search">
-        {/* 입력 제어권을 가진 컴포넌트 */}
         <Search onSearchChange={setSearchQuery} />
       </div>
-      <div className="app-content animate-fade-in-up">
-        <div className="app-graph-frame">
-          {/* 지연된 검색 쿼리를 전달받아 무거운 렌더링 블로킹 방지 */}
-          <BookmarkGraph searchQuery={deferredQuery} />
+
+      <div className="app-main-layout" style={{ display: 'flex', width: '100%', height: 'calc(100% - 140px)', gap: '20px' }}>
+        <section className="physics-control-panel" style={{ width: '280px', background: '#111', padding: '20px', borderRadius: '8px', color: '#fff', zIndex: 10, display: 'flex', flexDirection: 'column' }}>
+          <h2 style={{ fontSize: '16px', marginBottom: '20px', borderBottom: '1px solid #333', paddingBottom: '10px' }}>
+            Physics Dashboard
+          </h2>
+          
+          <div className="sliders-group-container">
+            <PhysicsSlider
+              label="노드간 반발력 (척력)"
+              min={-1000}
+              max={-10}
+              step={10}
+              value={physics.chargeStrength}
+              onChange={(val) => handleConfigChange('chargeStrength', val)}
+            />
+
+            <PhysicsSlider
+              label="연결선 목표 거리"
+              min={10}
+              max={200}
+              step={5}
+              value={physics.linkDistance}
+              onChange={(val) => handleConfigChange('linkDistance', val)}
+            />
+
+            <PhysicsSlider
+              label="연결선 장력 강도"
+              min={0.05}
+              max={1}
+              step={0.05}
+              value={physics.linkStrength}
+              onChange={(val) => handleConfigChange('linkStrength', val)}
+            />
+          </div>
+
+          <button 
+            type="button"
+            onClick={handleResetToDefault}
+            style={{\n              width: '100%',
+              padding: '10px',
+              background: '#c92a2a',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontWeight: 'bold',
+              fontSize: '13px',
+              transition: 'background 0.2s',
+              marginTop: '10px'
+            }}
+            onMouseOver={(e) => (e.currentTarget.style.background = '#e03131')}
+            onMouseOut={(e) => (e.currentTarget.style.background = '#c92a2a')}
+          >
+            Reset to Default
+          </button>
+        </section>
+
+        <div className="app-graph-frame" style={{ flex: 1, height: '100%', position: 'relative' }}>
+          <BookmarkGraph searchQuery={deferredQuery} physicsConfig={physics} />
         </div>
       </div>
     </main>

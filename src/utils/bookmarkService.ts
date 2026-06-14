@@ -1,19 +1,6 @@
 import { BookmarkNode } from '../types';
 
-// 트리 평탄화가 필요한 경우 내부 모듈 헬퍼로만 유지하거나 미사용 시 제거
-const flattenBookmarks = (nodes: BookmarkNode[]): BookmarkNode[] => {
-    let result: BookmarkNode[] = [];
-    for (const node of nodes) {
-        if (node.url) {
-            result.push(node);
-        } else if (node.children) {
-            result = result.concat(flattenBookmarks(node.children));
-        }
-    }
-    return result;
-};
-
-// Mozilla/Firefox 백업 스펙을 내부 BookmarkNode 구조로 정규화하는 순수 어댑터 함수
+// Mozilla/Firefox 백업 포맷을 내부 표준 도메인 모델로 변환하는 정문화 함수
 const transformBackupToStandard = (backupNode: any): BookmarkNode => {
     const isFolder = backupNode.type === 'text/x-moz-place-container' || (!backupNode.uri && !!backupNode.children);
     
@@ -32,14 +19,14 @@ const transformBackupToStandard = (backupNode: any): BookmarkNode => {
 };
 
 export const bookmarkService = {
-    // 오직 웹 런타임 데이터 인프라 스트림만 남겨 명확성 확보
     getTree: async (): Promise<BookmarkNode[]> => {
         let parsedTree: BookmarkNode[] = [];
 
         try {
-            const response = await fetch('/bookmarks-2026-06-08.json');
+            // 업로드된 실제 백업 파일 데이터 자산 명세와 동기화
+            const response = await fetch('/bookmarks-2026-06-14.json');
             if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                throw new Error(`HTTP fetch status error: ${response.status}`);
             }
             const backupData = await response.json();
             const standardRoot = transformBackupToStandard(backupData);
@@ -49,11 +36,11 @@ export const bookmarkService = {
             
             parsedTree = [standardRoot];
         } catch (error) {
-            console.error("Failed to load runtime backup JSON:", error);
+            console.error("Failed to load runtime backup JSON, applying empty fallback:", error);
             parsedTree = [{ id: 'root', title: 'Bookmark Explorer', children: [] }];
         }
 
-        // 로컬 영속성 스토리지 병합 파이프라인
+        // localStorage와의 영속성 결합 데이터 파이프라인
         const saved = localStorage.getItem('bookmarks');
         const simpleList: BookmarkNode[] = saved ? JSON.parse(saved) : [];
         

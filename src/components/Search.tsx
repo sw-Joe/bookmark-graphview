@@ -6,7 +6,6 @@ interface SearchProps {
     onSearchChange: (query: string) => void;
 }
 
-// [교보재 최적화] React.memo 적용을 통해 App의 리렌더링으로부터 컴포넌트 보호
 const Search: React.FC<SearchProps> = React.memo(({ onSearchChange }) => {
     const [query, setQuery] = useState('');
     const inputRef = useRef<HTMLInputElement>(null);
@@ -18,7 +17,7 @@ const Search: React.FC<SearchProps> = React.memo(({ onSearchChange }) => {
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const val = e.target.value;
         setQuery(val);
-        onSearchChange(val); // 실시간으로 부모에게 상태 전파
+        onSearchChange(val);
     };
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -43,7 +42,5 @@ const Search: React.FC<SearchProps> = React.memo(({ onSearchChange }) => {
     );
 });
 
-// React.memo 디버깅용 네임 명시
 Search.displayName = 'Search';
-
 export default Search;

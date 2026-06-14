@@ -1,11 +1,13 @@
 import { forceCollide } from 'd3-force';
 import ForceGraph from 'force-graph';
 import React, { useEffect, useRef } from 'react';
+import { PhysicsConfig } from '../App';
 import { BookmarkNode, GraphData, GraphNode, RenderGraphLink, RenderGraphNode } from '../types';
 import { bookmarkService } from '../utils/bookmarkService';
 
 interface BookmarkGraphProps {
     searchQuery: string;
+    physicsConfig: PhysicsConfig;
 }
 
 const truncateText = (text: string, maxLength: number = 14): string => {
@@ -67,7 +69,7 @@ const transformData = (tree: BookmarkNode[]): GraphData => {
     return { nodes, links };
 };
 
-export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery }) => {
+export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery, physicsConfig }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const graphInstanceRef = useRef<ForceGraph<RenderGraphNode, RenderGraphLink> | null>(null);
     const rootNodeRef = useRef<RenderGraphNode | null>(null);
@@ -166,9 +168,6 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery }) => 
                     }
                     
                     updateVisibleGraph();
-                    
-                    // [교정 완결] 무효한 d3AlphaTarget 체이닝을 완전히 제거하고, 
-                    // 라이브러리가 공식 제공하는 안전한 시뮬레이션 가열 표준 API로 교체
                     Graph.d3ReheatSimulation();
                 } else if (node.url) {
                     window.open(node.url, '_blank', 'noopener,noreferrer');
@@ -242,7 +241,7 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery }) => 
             }
         });
 
-        // 엣지 포인터 안전성 및 좌표 타입 가드 완전 적용
+        // 타이밍 가드 수립 (link.source 포인터 결합 지연 버그 원천 진압)
         Graph.linkCanvasObject((link: RenderGraphLink, ctx: CanvasRenderingContext2D, globalScale: number) => {
             if (globalScale < 0.6) return;
             
@@ -282,40 +281,7 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery }) => 
 
             updateVisibleGraph();
 
-            // 1. 충돌 반경 포스는 기존 수식 유지 (겹침 방지)
-            Graph.d3Force('collide', forceCollide<RenderGraphNode>((node: RenderGraphNode) => 
-                Math.sqrt(Math.max(0, node.val || 1)) * 2 + 5
-            ));
-
-            // 2. [교정] 계층별 차등 반발력(charge) 설정
-            // depth=1 대분류 폴더 노드 간의 상호 척력을 줄여 중앙 밀집 유도
-            const chargeForce = Graph.d3Force('charge');
-            if (chargeForce) {
-                (chargeForce as any).strength((node: RenderGraphNode) => {
-                    if (node.isRoot) return 0; // 루트는 중심점 고정이므로 척력 불필요
-                    if (node.depth === 1) return -50; // depth=1 폴더 간 반발력을 대폭 축소 (기존 -150)
-                    return -120; // 하위 자식 노드들은 적절한 거리를 유지하도록 밀어냄
-                });
-            }
-            
-            // 3. [교정] 계층별 탄성 연결선 거리(distance) 차등 설정
-            // 루트와 대분류(depth=1) 사이의 끈을 짧고 단단하게 조여 거리를 좁힘
-            const linkForce = Graph.d3Force('link');
-            if (linkForce) {
-                (linkForce as any)
-                    .distance((link: any) => {
-                        const sourceNode = link.source as RenderGraphNode;
-                        const targetNode = link.target as RenderGraphNode;
-                        
-                        // 루트 노드와 depth=1 폴더를 연결하는 엣지인 경우 거리를 25px로 단축
-                        if (sourceNode.isRoot || targetNode.isRoot) {
-                            return 25;
-                        }
-                        // 그 외 하위 계층 간의 거리는 45px로 확보하여 가독성 증대
-                        return 45;
-                    })
-                    .strength(0.4); // 결합 강도를 0.3에서 0.4로 올려 중심부 구속력 강화
-            }
+            Graph.d3Force('collide', forceCollide<RenderGraphNode>((node: RenderGraphNode) => Math.sqrt(Math.max(0, node.val || 1)) * 2 + 5));
         };
 
         loadData();
@@ -336,6 +302,25 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery }) => 
             graphInstanceRef.current = null;
         };
     }, []);
+
+    useEffect(() => {
+        const Graph = graphInstanceRef.current;
+        if (!Graph) return;
+
+        const chargeForce = Graph.d3Force('charge');
+        if (chargeForce) {
+            (chargeForce as any).strength(physicsConfig.chargeStrength);
+        }
+
+        const linkForce = Graph.d3Force('link');
+        if (linkForce) {
+            (linkForce as any)
+                .distance(physicsConfig.linkDistance)
+                .strength(physicsConfig.linkStrength);
+        }
+
+        Graph.d3ReheatSimulation();
+    }, [physicsConfig]);
 
     useEffect(() => {
         if (!graphInstanceRef.current) return;
