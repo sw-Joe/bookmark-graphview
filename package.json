@@ -19,10 +19,12 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.2",
     "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^16.5.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.59.4",
-    "vite": "^7.2.4"
+    "vite": "^8.0.16"
   },
   "dependencies": {
     "d3-force": "^3.0.0",
