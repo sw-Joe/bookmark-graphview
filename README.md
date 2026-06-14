@@ -1,16 +1,103 @@
-# React + Vite
+로컬 리포지토리(Local Repository)에 반영하고 외부 GitHub 등에 퍼블릭으로 안전하게 올릴 수 있도록, **개인 식별 정보(이름, 학번, 메일 등)와 시스템 의존적 레거시를 전면 제거하고 개발 관련 핵심 엔지니어링 명세만 정제하여 작성한 `README.md` 사양**입니다.
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+---
 
-Currently, two official plugins are available:
+# Bookmark-Dashboard ( 지식 그래프 기반 북마크 탐색 대시보드 )
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 1. 프로젝트 개요 및 목표
 
-## React Compiler
+기존 웹 브라우저의 북마크 관리 체계는 단편적인 계층형 폴더 구조에 의존하여 정보의 축적량에 비례해 링크 간의 연관성과 전체적인 지식 구조의 맥락을 직관적으로 파악하기 어렵다는 한계를 가집니다.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+본 프로젝트는 이러한 한계를 극복하고자 **사용자의 북마크 구조를 노드(Node)와 엣지(Edge) 기반의 2차원 지식 그래프(Knowledge Graph) 형태로 변환하여 시각화하는 인터랙티브 대시보드**를 구축합니다. 백엔드 서버 및 외부 DB 인프라의 간섭을 배제하고 오직 순수 Client-side React와 TypeScript의 최적화 패턴만을 활용하여 단독 구동이 가용한 프로덕션 규격의 정적 웹 클라이언트를 구현하는 것을 목표로 합니다.
 
-## Expanding the ESLint configuration
+---
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## 2. 프로젝트 아키텍처 및 모듈 구조
+
+단일 책임 원칙(SRP)과 관심사 분리(SoC)를 준수하여 설계되었으며, 데이터 파싱 레이어와 하드 드로잉 레이어를 컴포넌트 외부로 완벽히 격리 추상화하여 컴포넌트의 비대화를 제어하고 가독성을 확보했습니다.
+
+```text
+src/
+├── types.ts                     # 정적 컴파일 무결성을 위한 핵심 도메인 타입 명세
+├── App.tsx                      # 최상위 셸, 전역 상태 통제 및 React 18 동시성 제어
+├── App.css                      # 풀스크린 다크 모드 및 사이드바 레이아웃 시스템
+├── main.tsx                     # 애플리케이션 진입점
+├── index.css                    # 글로벌 스타일 초기화 및 Tailwind CSS 바인딩
+├── components/
+│   ├── Search.tsx               # 입력 폼 격리 및 가상 돔 연산 단절을 위한 메모이제이션 컴포넌트
+│   ├── Search.css               # 발광 이펙트 내장 통합 인풋 바 스타일
+│   ├── PhysicsSlider.tsx        # 물리 계수 양방향 바인딩 전용 제어반 모듈
+│   ├── BookmarkGraph.tsx        # 지식 그래프 생명주기 및 D3 시뮬레이터 제어 컨트롤러
+│   └── graphCanvasRenderer.ts   # HTML5 Canvas 2D 컨텍스트 로우레벨 그래픽 드로잉 모듈
+└── utils/
+    └── bookmarkService.ts       # 비동기 파일 수신 및 계층 스펙 정형화 어댑터 모듈
+
+```
+
+---
+
+## 3. 주요 핵심 기능 정의
+
+### A. 백업 데이터 동적 하이드레이션 (Hydration) 및 어댑터 패턴
+
+* 소스 내 하드코딩된 더미 데이터를 배제하고, `public/` 디렉토리 내 정적 자산 구조로 서빙되는 JSON 데이터를 브라우저 `fetch` 스레드로 비동기 수신합니다.
+* **어댑터 패턴(Adapter Pattern)** 기법을 이식하여 계층형 트리 포맷의 비표준 속성명들을 시스템 내부 표준 스키마인 `BookmarkNode` 구조로 재귀 파싱 정형화합니다.
+* `localStorage` 저장소 레이어를 결합하여, 런타임에 발생한 커스텀 쓰기 트랜잭션 병합 파이프라인을 동적으로 연동했습니다.
+
+### B. 지수 함수 감쇄형 계층 노드 스케일링 (Node Sizing)
+
+* 정보 가시성의 왜곡을 방지하기 위해 계층 구조의 깊이(`depth`)를 입력 인자로 취하는 수학적 지수 함수 감쇄 공식을 도입했습니다.
+* 최상위 루트 노드는 `150px`, 대분류 디렉토리(`depth=1`)는 약 `33px` 스케일로 지정되는 $75 \times e^{-0.8 \times depth}$ 수식을 가동하여, 일반 단말 북마크 노드(크기 `4`)와 겹치지 않는 이상적인 시각적 위계(Visual Hierarchy)를 구현합니다.
+
+### C. 실시간 물리 역학 커스텀 조율 대시보드 (Physics Panel)
+
+* 만유 척력 세기(`chargeStrength`), 연결선 목표 거리(`linkDistance`), 탄성 연결 장력(`linkStrength`) 속성을 사용자가 실시간 웹 인터페이스(슬라이더 및 입력창)를 통해 양방향 바인딩(Two-way binding) 조작 가능합니다.
+* 값이 바뀔 때 React 컴포넌트를 파괴하지 않고, 런타임 D3 인스턴스의 내부 메서드를 직접 동기화 변조한 뒤 표준 가열 API인 `Graph.d3ReheatSimulation()`을 점화시켜 튕김 없는 무중단 역학 변동 애니메이션을 구현했습니다.
+
+---
+
+## 4. 성능 최적화 및 에러 가드 명세 (Technical Achievement)
+
+### A. React 18 동시성(Concurrent) 업데이트 기법 수립
+
+* 검색창 입력 시 발생하는 입력 지연(Input Lag) 병목을 차단하기 위해 **`useDeferredValue`** 훅을 탑재했습니다.
+* 키보드 타이핑 이벤트 스레드를 최우선 처리 큐에 배치하고, 무거운 지식 그래프 캔버스 하이라이트 및 카메라 무빙 연산은 백그라운드 후순위 스레드로 지연 제어하여 UI 응답성을 사수했습니다.
+
+### B. D3 링킹 타이밍 레이스 컨디션 및 포인터 오염 차단
+
+* 폴더 노드를 연속적으로 토글(확장/축소)할 때 D3의 문자열 식별자가 객체 포인터 참조로 치환되는 과정에서 미세한 엇박자로 인해 발생하던 `TypeError: link.source is undefined` 누수 현상을 해결했습니다.
+* `linkCanvasObject` 드로잉 진입점에 수치형 좌표 타입 가드(Type Guard Clause)를 빌드하여 포인터가 `number` 타입으로 100% 확정된 순간에만 안전하게 드로잉을 허용함으로써 런타임 누출을 통제했습니다.
+
+### C. 부모 좌표 캐싱 기반 증분 배치 최적화 (`nodeCoordinatesCache`)
+
+* 초기 좌표 지정 없이 하위 노드가 화면에 대량 출현할 때 물리 엔진이 사방으로 요동치며 CPU 스파이크를 일으키는 Explosion 이펙트를 억제했습니다.
+* 노드의 실시간 변동 좌표를 `useRef` 메모리 세션 맵에 지속 백업하고, 새로 개방되는 자식 노드의 생성 초기 좌표를 부모의 실시간 좌표 곁(`parentId` 기반)으로 고정하여 부드럽고 안정적인 토폴로지 전개 UX를 달성했습니다.
+
+---
+
+## 5. 설치 및 빌드 구동 방법
+
+### 의존성 패키지 설치
+
+```bash
+npm install
+
+```
+
+### 로컬 개발 서버 구동
+
+```bash
+npm run dev
+
+```
+
+### 프로덕션 빌드 및 최적화
+
+Vite 정적 번들링 및 자산 최적화 규격에 맞춰 `dist/` 아티팩트를 산출합니다.
+
+```bash
+npm run build
+
+```
+
+* *주의: 정적 데이터셋 JSON 자산은 `public/` 디렉토리 하단 루트 경로에 위치해야 정상적으로 패칭 구동됩니다.*

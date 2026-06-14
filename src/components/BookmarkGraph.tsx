@@ -2,18 +2,14 @@ import { forceCollide } from 'd3-force';
 import ForceGraph from 'force-graph';
 import React, { useEffect, useRef } from 'react';
 import { PhysicsConfig } from '../App';
-import { BookmarkNode, GraphData, GraphNode, RenderGraphLink, RenderGraphNode } from '../types';
+import { BookmarkNode, GraphNode, RenderGraphLink, RenderGraphNode } from '../types';
 import { bookmarkService } from '../utils/bookmarkService';
+import { drawLink, drawNode } from './graphCanvasRenderer';
 
 interface BookmarkGraphProps {
     searchQuery: string;
     physicsConfig: PhysicsConfig;
 }
-
-const truncateText = (text: string, maxLength: number = 14): string => {
-    if (text.length <= maxLength) return text;
-    return text.substring(0, maxLength) + '...';
-};
 
 const transformData = (tree: BookmarkNode[]): GraphData => {
     const nodes: GraphNode[] = [];
@@ -74,13 +70,17 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery, physi
     const graphInstanceRef = useRef<ForceGraph<RenderGraphNode, RenderGraphLink> | null>(null);
     const rootNodeRef = useRef<RenderGraphNode | null>(null);
     const hoveredNodeRef = useRef<RenderGraphNode | null>(null);
-    const imgCache = useRef<{ [key: string]: HTMLImageElement }>({});
     
+    // 메모리 참조 오염을 방지하기 위한 캐시 및 영속 저장 useRef 선언부
+    const imgCache = useRef<{ [key: string]: HTMLImageElement }>({});
     const allDataRef = useRef<{ nodes: GraphNode[]; links: { source: string; target: string }[] }>({ nodes: [], links: [] });
     const expandedNodesRef = useRef<Set<string>>(new Set());
     const nodeByIdRef = useRef<Map<string, GraphNode>>(new Map());
     const nodeCoordinatesCache = useRef<Map<string, { x: number; y: number }>>(new Map());
 
+    /**
+     * 폴더 토글 상태(BFS 트리 구조)를 계산하여 현재 화면에 출현해야 하는 가시적 노드/엣지만 필터링 주입
+     */
     const updateVisibleGraph = () => {
         const Graph = graphInstanceRef.current;
         if (!Graph || allDataRef.current.nodes.length === 0) return;
@@ -94,6 +94,7 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery, physi
         const queue = [...roots];
         queue.forEach(n => visibleNodeIds.add(n.id));
 
+        // Queue 기반 BFS 트리 탐색을 통하여 확장 상태인 디렉토리의 하위 요소 스레드 파악
         while (queue.length > 0) {
             const node = queue.shift();
             if (!node) continue;
@@ -110,6 +111,7 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery, physi
             }
         }
 
+        // [증분 배치 최적화] 새로 확장 출력되는 자식 노드의 원천 좌표를 부모의 실시간 좌표 곁으로 고정
         const renderedNodes = visibleNodeObjects.map((node) => {
             const castedNode = node as RenderGraphNode;
             const cachedCoords = nodeCoordinatesCache.current.get(node.id);
@@ -120,6 +122,7 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery, physi
             } else if (node.parentId) {
                 const parentCoords = nodeCoordinatesCache.current.get(node.parentId);
                 if (parentCoords) {
+                    // D3 물리 반발력 연산 오버헤드를 막기 위해 부모 곁에 인접 배치 (Explosion 효과 차단)
                     castedNode.x = parentCoords.x + (Math.random() - 0.5) * 4;
                     castedNode.y = parentCoords.y + (Math.random() - 0.5) * 4;
                 }
@@ -127,6 +130,7 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery, physi
             return castedNode;
         });
 
+        // 엣지 정보 평탄화 딥카피 정형화 파이프라인
         const visibleLinks = allDataRef.current.links
             .filter((link) => {
                 const sourceId = typeof link.source === 'object' ? (link.source as any).id : link.source;
@@ -145,6 +149,7 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery, physi
         });
     };
 
+    // 1. ForceGraph 초기 인스턴스 빌드 수명주기 훅 (최초 마운트 시 단 1회 구동)
     useEffect(() => {
         if (!containerRef.current) return;
 
@@ -168,7 +173,7 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery, physi
                     }
                     
                     updateVisibleGraph();
-                    Graph.d3ReheatSimulation();
+                    Graph.d3ReheatSimulation(); // 물리 재가열 인터페이스
                 } else if (node.url) {
                     window.open(node.url, '_blank', 'noopener,noreferrer');
                 }
@@ -176,90 +181,21 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery, physi
 
         graphInstanceRef.current = Graph;
 
+        // 분리 캡슐화된 외장 드로잉 모듈 바인딩 (노드 영역)
         Graph.nodeCanvasObject((node: RenderGraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
             const currentSearchQuery = (Graph as any)._currentSearchQuery || '';
-            const label = truncateText(node.title, node.isRoot ? 24 : 14);
-            let baseFontSize = 10;
-            if (node.isRoot) baseFontSize = 48;
-            else if (node.group === 'folder') baseFontSize = 24;
-
-            const fontSize = Math.max(4, baseFontSize / globalScale); 
-            ctx.font = `${node.isRoot ? 'bold ' : ''}${fontSize}px Sans-Serif`;
             
-            const isHovered = node === hoveredNodeRef.current;
-            const isRoot = node.isRoot;
-            const r = Math.sqrt(Math.max(0, node.val || 1)) * 2;
-
+            // 실시간 렌더링 프레임 좌표의 로컬 캐시 스토리지 백업
             if (node.x !== undefined && node.y !== undefined) {
                 nodeCoordinatesCache.current.set(node.id, { x: node.x, y: node.y });
             }
 
-            const isMatched = currentSearchQuery && node.title.toLowerCase().includes(currentSearchQuery.toLowerCase());
-
-            if (isHovered || isRoot || isMatched) {
-                ctx.beginPath();
-                ctx.arc(node.x ?? 0, node.y ?? 0, r + (isRoot ? 6 / globalScale : 2 / globalScale), 0, 2 * Math.PI, false); 
-                ctx.fillStyle = isRoot ? 'rgba(255, 215, 0, 0.2)' : (isMatched ? 'rgba(255, 69, 0, 0.4)' : 'rgba(255, 255, 255, 0.3)');
-                ctx.fill();
-            }
-
-            ctx.beginPath();
-            ctx.arc(node.x ?? 0, node.y ?? 0, r, 0, 2 * Math.PI, false);
-            ctx.fillStyle = isRoot ? '#FFD700' : (isMatched ? '#FF4500' : (node.group === 'folder' ? '#ffffff' : '#444444'));
-            ctx.fill();
-
-            if (node.group === 'bookmark' && node.url) {
-                let img = imgCache.current[node.url];
-                if (!img) {
-                    img = new Image();
-                    let hostname = 'Unknown';
-                    try { hostname = new URL(node.url).hostname; } catch {}
-                    img.src = `https://www.google.com/s2/favicons?domain=${hostname}&sz=64`;
-                    imgCache.current[node.url] = img;
-                }
-                if (img.complete && img.naturalWidth > 0) {
-                    ctx.save();
-                    ctx.beginPath();
-                    ctx.arc(node.x ?? 0, node.y ?? 0, r - 0.5, 0, 2 * Math.PI, false);
-                    ctx.clip();
-                    try { ctx.drawImage(img, (node.x ?? 0) - r, (node.y ?? 0) - r, r * 2, r * 2); } catch {}
-                    ctx.restore();
-                }
-            }
-
-            let showLabel = false;
-            if (isRoot || isHovered || isMatched) showLabel = true;
-            else if (node.group === 'folder' && globalScale > 0.4) showLabel = true;
-            else if (globalScale > 1.5) showLabel = true;
-
-            if (showLabel) {
-                const textWidth = ctx.measureText(label).width;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle = isHovered ? '#ffffff' : (isMatched ? '#FF4500' : (isRoot ? '#FFD700' : 'rgba(255, 255, 255, 0.8)'));
-                ctx.fillText(label, node.x ?? 0, (node.y ?? 0) + r + (4 / globalScale), textWidth);
-            }
+            drawNode(node, ctx, globalScale, currentSearchQuery, hoveredNodeRef.current, imgCache.current);
         });
 
-        // 타이밍 가드 (link.source 포인터 결합 지연 버그 방지)
+        // 분리 캡슐화된 외장 드로잉 모듈 바인딩 (엣지 영역)
         Graph.linkCanvasObject((link: RenderGraphLink, ctx: CanvasRenderingContext2D, globalScale: number) => {
-            if (globalScale < 0.6) return;
-            
-            const start = link.source;
-            const end = link.target;
-            
-            if (!start || !end || typeof start !== 'object' || typeof end !== 'object') return;
-            if (typeof start.x !== 'number' || typeof start.y !== 'number' || 
-                typeof end.x !== 'number' || typeof end.y !== 'number') {
-                return;
-            }
-
-            ctx.beginPath();
-            ctx.moveTo(start.x, start.y);
-            ctx.lineTo(end.x, end.y);
-            ctx.lineWidth = 1 / globalScale;
-            ctx.strokeStyle = '#333333';
-            ctx.stroke();
+            drawLink(link, ctx, globalScale);
         });
 
         Graph.onNodeHover((node: RenderGraphNode | null) => {
@@ -267,6 +203,7 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery, physi
             if (containerRef.current) containerRef.current.style.cursor = node ? 'pointer' : 'default';
         });
 
+        // 비동기 파이프라인 정적 파일 로드 스케줄러
         const loadData = async () => {
             const tree = await bookmarkService.getTree();
             const { nodes, links } = transformData(tree);
@@ -281,6 +218,7 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery, physi
 
             updateVisibleGraph();
 
+            // 기초 하드 콜라이드 충돌 반경 강제 앵커링
             Graph.d3Force('collide', forceCollide<RenderGraphNode>((node: RenderGraphNode) => Math.sqrt(Math.max(0, node.val || 1)) * 2 + 5));
         };
 
@@ -303,14 +241,13 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery, physi
         };
     }, []);
 
+    // 2. 피지컬 조작 UI 대시보드 상태 변경 감지 실시간 연동 동기화 훅
     useEffect(() => {
         const Graph = graphInstanceRef.current;
         if (!Graph) return;
 
         const chargeForce = Graph.d3Force('charge');
-        if (chargeForce) {
-            (chargeForce as any).strength(physicsConfig.chargeStrength);
-        }
+        if (chargeForce) (chargeForce as any).strength(physicsConfig.chargeStrength);
 
         const linkForce = Graph.d3Force('link');
         if (linkForce) {
@@ -322,6 +259,7 @@ export const BookmarkGraph: React.FC<BookmarkGraphProps> = ({ searchQuery, physi
         Graph.d3ReheatSimulation();
     }, [physicsConfig]);
 
+    // 3. 상위 인풋 패널 서치 변경 동시성 훅 감지 및 카메라 트래킹 수명주기 훅
     useEffect(() => {
         if (!graphInstanceRef.current) return;
         
